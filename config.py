@@ -18,7 +18,7 @@ class OpenRouterConfig:
         return cls(
             api_key=os.getenv("OPENROUTER_API_KEY"),
             base_url=os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"),
-            model=model or os.getenv("OPENROUTER_MODEL", "openai/gpt-4o-mini"),
+            model=model or os.getenv("OPENROUTER_MODEL", "meta-llama/llama-3.1-8b-instruct"),
             http_referer=os.getenv("OPENROUTER_HTTP_REFERER"),
             title=os.getenv("OPENROUTER_TITLE", "MAPF UrbanEV"),
             timeout_seconds=float(os.getenv("OPENROUTER_TIMEOUT_SECONDS", "90")),

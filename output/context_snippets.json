@@ -1,0 +1,557 @@
+[
+  {
+    "zone_id": "321",
+    "category": "CBD / Office",
+    "history_start": "2023-02-18T00:00:00",
+    "history_end": "2023-02-24T23:00:00",
+    "forecast_start": "2023-02-25T00:00:00",
+    "forecast_end": "2023-02-28T23:00:00",
+    "forecast_total_kwh": 1537.72,
+    "forecast_peak_kwh": 19.11,
+    "predicted_change_pct": 111.73,
+    "actual_total_kwh": 672.0,
+    "actual_peak_kwh": 7.0,
+    "wape_pct": 129.14,
+    "capacity_kw_proxy": 484.0,
+    "peak_capacity_ratio": 0.039,
+    "grid_stress_level": "Low",
+    "price": {
+      "mean_service_price": 0.57,
+      "min_service_price": 0.57,
+      "max_service_price": 0.57
+    },
+    "weather": {
+      "mean_temp_c": 16.78,
+      "mean_humidity": 57.33,
+      "rain_hours": 0,
+      "total_rain": 0.0
+    },
+    "occupancy": {
+      "mean": 14.36,
+      "peak": 18.0
+    },
+    "profile": {
+      "station_count": 4,
+      "charge_count": 44,
+      "capacity_kw_proxy": 484.0,
+      "mean_load_kwh": 25.7998,
+      "peak_load_kwh": 147.0,
+      "peak_capacity_ratio": 0.3037,
+      "load_cv": 1.1106,
+      "burstiness_p99_mean": 4.4542,
+      "morning_ratio": 1.4291,
+      "evening_ratio": 0.7473,
+      "night_ratio": 0.4038,
+      "weekend_ratio": 0.5335,
+      "poi_food": 146,
+      "poi_business": 633,
+      "poi_lifestyle": 415,
+      "poi_total": 1194,
+      "mean_service_price": 0.57
+    },
+    "daily_history_kwh": [
+      {
+        "date": "2023-02-18",
+        "kwh": 672.0
+      },
+      {
+        "date": "2023-02-19",
+        "kwh": 672.0
+      },
+      {
+        "date": "2023-02-20",
+        "kwh": 672.0
+      },
+      {
+        "date": "2023-02-21",
+        "kwh": 222.25
+      },
+      {
+        "date": "2023-02-22",
+        "kwh": 168.0
+      },
+      {
+        "date": "2023-02-23",
+        "kwh": 168.0
+      },
+      {
+        "date": "2023-02-24",
+        "kwh": 168.0
+      }
+    ],
+    "daily_forecast_kwh": [
+      {
+        "date": "2023-02-25",
+        "kwh": 445.15
+      },
+      {
+        "date": "2023-02-26",
+        "kwh": 445.15
+      },
+      {
+        "date": "2023-02-27",
+        "kwh": 445.15
+      },
+      {
+        "date": "2023-02-28",
+        "kwh": 202.28
+      }
+    ],
+    "hourly_shape": {
+      "morning_7_10": 16.17,
+      "noon_11_14": 16.0,
+      "evening_17_22": 16.0,
+      "night_20_6": 16.64
+    },
+    "selection_reason": "High business/residential POI density with stronger morning and noon demand signals.",
+    "instructions": {
+      "forecast_task": "Predict next 1-4 days of EV charging load.",
+      "behavior_task": "Explain demand using POI, weather, and temporal markers.",
+      "pricing_task": "Suggest service-price shift from stress and elasticity proxy."
+    }
+  },
+  {
+    "zone_id": "719",
+    "category": "Residential",
+    "history_start": "2023-02-18T00:00:00",
+    "history_end": "2023-02-24T23:00:00",
+    "forecast_start": "2023-02-25T00:00:00",
+    "forecast_end": "2023-02-28T23:00:00",
+    "forecast_total_kwh": 629.59,
+    "forecast_peak_kwh": 28.7,
+    "predicted_change_pct": -54.94,
+    "actual_total_kwh": 1344.0,
+    "actual_peak_kwh": 14.0,
+    "wape_pct": 67.43,
+    "capacity_kw_proxy": 66.0,
+    "peak_capacity_ratio": 0.435,
+    "grid_stress_level": "Low",
+    "price": {
+      "mean_service_price": 0.76,
+      "min_service_price": 0.76,
+      "max_service_price": 0.76
+    },
+    "weather": {
+      "mean_temp_c": 16.78,
+      "mean_humidity": 57.33,
+      "rain_hours": 0,
+      "total_rain": 0.0
+    },
+    "occupancy": {
+      "mean": 2.86,
+      "peak": 4.0
+    },
+    "profile": {
+      "station_count": 1,
+      "charge_count": 6,
+      "capacity_kw_proxy": 66.0,
+      "mean_load_kwh": 18.8802,
+      "peak_load_kwh": 42.0,
+      "peak_capacity_ratio": 0.6364,
+      "load_cv": 0.6634,
+      "burstiness_p99_mean": 2.2246,
+      "morning_ratio": 0.792,
+      "evening_ratio": 1.0938,
+      "night_ratio": 1.281,
+      "weekend_ratio": 1.1976,
+      "poi_food": 1512,
+      "poi_business": 1433,
+      "poi_lifestyle": 3455,
+      "poi_total": 6400,
+      "mean_service_price": 0.76
+    },
+    "daily_history_kwh": [
+      {
+        "date": "2023-02-18",
+        "kwh": 0.0
+      },
+      {
+        "date": "2023-02-19",
+        "kwh": 0.0
+      },
+      {
+        "date": "2023-02-20",
+        "kwh": 0.0
+      },
+      {
+        "date": "2023-02-21",
+        "kwh": 389.08
+      },
+      {
+        "date": "2023-02-22",
+        "kwh": 336.0
+      },
+      {
+        "date": "2023-02-23",
+        "kwh": 336.0
+      },
+      {
+        "date": "2023-02-24",
+        "kwh": 336.0
+      }
+    ],
+    "daily_forecast_kwh": [
+      {
+        "date": "2023-02-25",
+        "kwh": 69.85
+      },
+      {
+        "date": "2023-02-26",
+        "kwh": 69.85
+      },
+      {
+        "date": "2023-02-27",
+        "kwh": 69.85
+      },
+      {
+        "date": "2023-02-28",
+        "kwh": 420.03
+      }
+    ],
+    "hourly_shape": {
+      "morning_7_10": 8.46,
+      "noon_11_14": 8.0,
+      "evening_17_22": 8.0,
+      "night_20_6": 8.52
+    },
+    "selection_reason": "High night/evening charging plateau, used as a residential demand proxy.",
+    "instructions": {
+      "forecast_task": "Predict next 1-4 days of EV charging load.",
+      "behavior_task": "Explain demand using POI, weather, and temporal markers.",
+      "pricing_task": "Suggest service-price shift from stress and elasticity proxy."
+    }
+  },
+  {
+    "zone_id": "519",
+    "category": "Transport Hub",
+    "history_start": "2023-02-18T00:00:00",
+    "history_end": "2023-02-24T23:00:00",
+    "forecast_start": "2023-02-25T00:00:00",
+    "forecast_end": "2023-02-28T23:00:00",
+    "forecast_total_kwh": 16762.94,
+    "forecast_peak_kwh": 237.43,
+    "predicted_change_pct": 22.28,
+    "actual_total_kwh": 14225.21,
+    "actual_peak_kwh": 189.0,
+    "wape_pct": 22.64,
+    "capacity_kw_proxy": 2453.0,
+    "peak_capacity_ratio": 0.097,
+    "grid_stress_level": "Low",
+    "price": {
+      "mean_service_price": 0.5792,
+      "min_service_price": 0.4794,
+      "max_service_price": 0.6603
+    },
+    "weather": {
+      "mean_temp_c": 16.78,
+      "mean_humidity": 57.33,
+      "rain_hours": 0,
+      "total_rain": 0.0
+    },
+    "occupancy": {
+      "mean": 116.4,
+      "peak": 131.0
+    },
+    "profile": {
+      "station_count": 14,
+      "charge_count": 223,
+      "capacity_kw_proxy": 2453.0,
+      "mean_load_kwh": 996.8471,
+      "peak_load_kwh": 4424.0833,
+      "peak_capacity_ratio": 1.8035,
+      "load_cv": 1.0089,
+      "burstiness_p99_mean": 3.8754,
+      "morning_ratio": 0.6925,
+      "evening_ratio": 0.6123,
+      "night_ratio": 1.2079,
+      "weekend_ratio": 0.9567,
+      "poi_food": 737,
+      "poi_business": 1755,
+      "poi_lifestyle": 2062,
+      "poi_total": 4554,
+      "mean_service_price": 0.5636
+    },
+    "daily_history_kwh": [
+      {
+        "date": "2023-02-18",
+        "kwh": 4140.92
+      },
+      {
+        "date": "2023-02-19",
+        "kwh": 4459.83
+      },
+      {
+        "date": "2023-02-20",
+        "kwh": 3844.58
+      },
+      {
+        "date": "2023-02-21",
+        "kwh": 3132.12
+      },
+      {
+        "date": "2023-02-22",
+        "kwh": 2929.17
+      },
+      {
+        "date": "2023-02-23",
+        "kwh": 3580.42
+      },
+      {
+        "date": "2023-02-24",
+        "kwh": 4066.83
+      }
+    ],
+    "daily_forecast_kwh": [
+      {
+        "date": "2023-02-25",
+        "kwh": 4383.96
+      },
+      {
+        "date": "2023-02-26",
+        "kwh": 4633.89
+      },
+      {
+        "date": "2023-02-27",
+        "kwh": 4151.72
+      },
+      {
+        "date": "2023-02-28",
+        "kwh": 3593.37
+      }
+    ],
+    "hourly_shape": {
+      "morning_7_10": 138.64,
+      "noon_11_14": 125.28,
+      "evening_17_22": 151.06,
+      "night_20_6": 183.86
+    },
+    "selection_reason": "High charging capacity and bursty load profile, used as a hub proxy.",
+    "instructions": {
+      "forecast_task": "Predict next 1-4 days of EV charging load.",
+      "behavior_task": "Explain demand using POI, weather, and temporal markers.",
+      "pricing_task": "Suggest service-price shift from stress and elasticity proxy."
+    }
+  },
+  {
+    "zone_id": "711",
+    "category": "Commercial / Mall",
+    "history_start": "2023-02-18T00:00:00",
+    "history_end": "2023-02-24T23:00:00",
+    "forecast_start": "2023-02-25T00:00:00",
+    "forecast_end": "2023-02-28T23:00:00",
+    "forecast_total_kwh": 2581.31,
+    "forecast_peak_kwh": 43.2,
+    "predicted_change_pct": 22.38,
+    "actual_total_kwh": 1650.25,
+    "actual_peak_kwh": 38.5,
+    "wape_pct": 78.91,
+    "capacity_kw_proxy": 374.0,
+    "peak_capacity_ratio": 0.115,
+    "grid_stress_level": "Low",
+    "price": {
+      "mean_service_price": 0.76,
+      "min_service_price": 0.76,
+      "max_service_price": 0.76
+    },
+    "weather": {
+      "mean_temp_c": 16.78,
+      "mean_humidity": 57.33,
+      "rain_hours": 0,
+      "total_rain": 0.0
+    },
+    "occupancy": {
+      "mean": 5.95,
+      "peak": 10.0
+    },
+    "profile": {
+      "station_count": 3,
+      "charge_count": 34,
+      "capacity_kw_proxy": 374.0,
+      "mean_load_kwh": 25.8578,
+      "peak_load_kwh": 70.0,
+      "peak_capacity_ratio": 0.1872,
+      "load_cv": 0.507,
+      "burstiness_p99_mean": 2.2334,
+      "morning_ratio": 0.8693,
+      "evening_ratio": 1.0076,
+      "night_ratio": 1.1489,
+      "weekend_ratio": 1.1266,
+      "poi_food": 1913,
+      "poi_business": 1445,
+      "poi_lifestyle": 4257,
+      "poi_total": 7615,
+      "mean_service_price": 0.76
+    },
+    "daily_history_kwh": [
+      {
+        "date": "2023-02-18",
+        "kwh": 541.33
+      },
+      {
+        "date": "2023-02-19",
+        "kwh": 559.42
+      },
+      {
+        "date": "2023-02-20",
+        "kwh": 469.58
+      },
+      {
+        "date": "2023-02-21",
+        "kwh": 480.08
+      },
+      {
+        "date": "2023-02-22",
+        "kwh": 359.33
+      },
+      {
+        "date": "2023-02-23",
+        "kwh": 599.67
+      },
+      {
+        "date": "2023-02-24",
+        "kwh": 670.25
+      }
+    ],
+    "daily_forecast_kwh": [
+      {
+        "date": "2023-02-25",
+        "kwh": 671.18
+      },
+      {
+        "date": "2023-02-26",
+        "kwh": 687.46
+      },
+      {
+        "date": "2023-02-27",
+        "kwh": 606.61
+      },
+      {
+        "date": "2023-02-28",
+        "kwh": 616.06
+      }
+    ],
+    "hourly_shape": {
+      "morning_7_10": 18.5,
+      "noon_11_14": 20.6,
+      "evening_17_22": 23.14,
+      "night_20_6": 23.77
+    },
+    "selection_reason": "High food/lifestyle POI density with evening or weekend demand lift.",
+    "instructions": {
+      "forecast_task": "Predict next 1-4 days of EV charging load.",
+      "behavior_task": "Explain demand using POI, weather, and temporal markers.",
+      "pricing_task": "Suggest service-price shift from stress and elasticity proxy."
+    }
+  },
+  {
+    "zone_id": "1167",
+    "category": "Industrial",
+    "history_start": "2023-02-18T00:00:00",
+    "history_end": "2023-02-24T23:00:00",
+    "forecast_start": "2023-02-25T00:00:00",
+    "forecast_end": "2023-02-28T23:00:00",
+    "forecast_total_kwh": 91756.19,
+    "forecast_peak_kwh": 1342.74,
+    "predicted_change_pct": 1.34,
+    "actual_total_kwh": 96867.0,
+    "actual_peak_kwh": 1402.42,
+    "wape_pct": 6.98,
+    "capacity_kw_proxy": 4103.0,
+    "peak_capacity_ratio": 0.327,
+    "grid_stress_level": "Low",
+    "price": {
+      "mean_service_price": 0.7332,
+      "min_service_price": 0.7081,
+      "max_service_price": 0.7581
+    },
+    "weather": {
+      "mean_temp_c": 16.78,
+      "mean_humidity": 57.33,
+      "rain_hours": 0,
+      "total_rain": 0.0
+    },
+    "occupancy": {
+      "mean": 148.55,
+      "peak": 202.0
+    },
+    "profile": {
+      "station_count": 19,
+      "charge_count": 373,
+      "capacity_kw_proxy": 4103.0,
+      "mean_load_kwh": 939.6706,
+      "peak_load_kwh": 1592.75,
+      "peak_capacity_ratio": 0.3882,
+      "load_cv": 0.3194,
+      "burstiness_p99_mean": 1.5627,
+      "morning_ratio": 0.8703,
+      "evening_ratio": 1.001,
+      "night_ratio": 1.2468,
+      "weekend_ratio": 1.1248,
+      "poi_food": 360,
+      "poi_business": 299,
+      "poi_lifestyle": 1015,
+      "poi_total": 1674,
+      "mean_service_price": 0.7297
+    },
+    "daily_history_kwh": [
+      {
+        "date": "2023-02-18",
+        "kwh": 25639.62
+      },
+      {
+        "date": "2023-02-19",
+        "kwh": 26905.62
+      },
+      {
+        "date": "2023-02-20",
+        "kwh": 22445.67
+      },
+      {
+        "date": "2023-02-21",
+        "kwh": 22205.12
+      },
+      {
+        "date": "2023-02-22",
+        "kwh": 23278.0
+      },
+      {
+        "date": "2023-02-23",
+        "kwh": 22566.83
+      },
+      {
+        "date": "2023-02-24",
+        "kwh": 22493.0
+      }
+    ],
+    "daily_forecast_kwh": [
+      {
+        "date": "2023-02-25",
+        "kwh": 23857.16
+      },
+      {
+        "date": "2023-02-26",
+        "kwh": 24724.17
+      },
+      {
+        "date": "2023-02-27",
+        "kwh": 21669.8
+      },
+      {
+        "date": "2023-02-28",
+        "kwh": 21505.07
+      }
+    ],
+    "hourly_shape": {
+      "morning_7_10": 828.97,
+      "noon_11_14": 624.21,
+      "evening_17_22": 996.99,
+      "night_20_6": 1267.38
+    },
+    "selection_reason": "Stable high base load and capacity, used as an industrial proxy.",
+    "instructions": {
+      "forecast_task": "Predict next 1-4 days of EV charging load.",
+      "behavior_task": "Explain demand using POI, weather, and temporal markers.",
+      "pricing_task": "Suggest service-price shift from stress and elasticity proxy."
+    }
+  }
+]
