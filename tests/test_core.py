@@ -1,8 +1,10 @@
 import unittest
+from pathlib import Path
 
 import pandas as pd
 
 from agents import extract_json_object
+from config import OpenRouterConfig
 from forecasting import seasonal_naive_forecast
 from zone_selection import select_zone_categories
 
@@ -11,6 +13,20 @@ class AgentParsingTests(unittest.TestCase):
     def test_extracts_json_from_markdown_fence(self):
         payload = extract_json_object('```json\n{"a": 1, "b": "x"}\n```')
         self.assertEqual(payload, {"a": 1, "b": "x"})
+
+
+class ConfigTests(unittest.TestCase):
+    def test_reads_openrouter_json_config(self):
+        path = Path("output") / "test_config.json"
+        path.parent.mkdir(exist_ok=True)
+        path.write_text(
+            '{"openrouter": {"api_key": "sk-or-test", "model": "test/model", "timeout_seconds": 12}}',
+            encoding="utf-8",
+        )
+        config = OpenRouterConfig.from_json(path)
+        self.assertEqual(config.api_key, "sk-or-test")
+        self.assertEqual(config.model, "test/model")
+        self.assertEqual(config.timeout_seconds, 12)
 
 
 class ForecastingTests(unittest.TestCase):

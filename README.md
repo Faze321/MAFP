@@ -30,10 +30,8 @@ python main.py --dry-run
 For OpenRouter-backed agents:
 
 ```powershell
-Copy-Item .env.example .env
-# Edit .env or set the same variables in your shell:
-$env:OPENROUTER_API_KEY="sk-or-..."
-$env:OPENROUTER_MODEL="openai/gpt-4o-mini"
+Copy-Item config.example.json config.json
+# Edit config.json and set openrouter.api_key / openrouter.model
 python main.py
 ```
 
@@ -41,7 +39,7 @@ Useful options:
 
 ```powershell
 python main.py --dry-run --horizon-days 4 --history-days 7
-python main.py --model anthropic/claude-sonnet-4.5 --forecast-start "2023-02-25 00:00:00"
+python main.py --config config.json --model anthropic/claude-sonnet-4.5 --forecast-start "2023-02-25 00:00:00"
 python main.py --force-cache
 ```
 

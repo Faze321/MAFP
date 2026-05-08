@@ -18,6 +18,7 @@ def run_pipeline(
     *,
     data_dir: Path,
     output_dir: Path,
+    config_path: Path = Path("config.json"),
     model: str | None = None,
     dry_run: bool = False,
     force_cache: bool = False,
@@ -45,12 +46,12 @@ def run_pipeline(
         history_days=history_days,
     )
 
-    config = OpenRouterConfig.from_env(model=model)
     if dry_run:
         client = None
     else:
+        config = OpenRouterConfig.from_json(config_path, model=model, required=True)
         if not config.api_key:
-            raise RuntimeError("OPENROUTER_API_KEY is required, or pass --dry-run for offline validation")
+            raise RuntimeError("openrouter.api_key is required in config.json, or pass --dry-run")
         client = OpenRouterChatClient(config)
     reports = asyncio.run(
         run_all_zone_chains(contexts, client=client, temperature=temperature)

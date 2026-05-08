@@ -13,6 +13,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--data-dir", default="data", help="Directory containing UrbanEV CSV files.")
     parser.add_argument("--output-dir", default="output", help="Directory for generated reports.")
+    parser.add_argument("--config", default="config.json", help="JSON config file for OpenRouter settings.")
     parser.add_argument("--model", default=None, help="OpenRouter model id, for example openai/gpt-4o-mini.")
     parser.add_argument("--dry-run", action="store_true", help="Skip LLM calls and use deterministic heuristics.")
     parser.add_argument("--force-cache", action="store_true", help="Rebuild cached zone profiles and POI assignment.")
@@ -31,6 +32,7 @@ def main(argv: list[str] | None = None) -> int:
     outputs = run_pipeline(
         data_dir=Path(args.data_dir),
         output_dir=Path(args.output_dir),
+        config_path=Path(args.config),
         model=args.model,
         dry_run=args.dry_run,
         force_cache=args.force_cache,

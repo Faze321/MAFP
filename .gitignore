@@ -2,6 +2,7 @@ __pycache__/
 # output/
 *.pyc
 .env
+config.json
 *.egg-info/
 .pytest_cache/
 
