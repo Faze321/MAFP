@@ -5,7 +5,7 @@ import pandas as pd
 
 from agents import extract_json_object
 from config import AgentConfig, AppConfig
-from forecasting import compute_forecast_metrics, seasonal_naive_forecast
+from forecasting import build_zone_model_frame, compute_forecast_metrics, seasonal_naive_forecast
 from orchestrator import normalize_zone_ids, select_requested_zones
 from zone_selection import select_zone_categories
 
@@ -28,9 +28,11 @@ class ConfigTests(unittest.TestCase):
         self.assertTrue(config.run.dry_run)
         self.assertEqual(config.run.horizon_days, 1)
         self.assertEqual(config.run.history_days, 7)
+        self.assertEqual(config.run.validation_days, 1)
         self.assertEqual(config.run.zone_ids, ["102"])
         self.assertEqual(config.run.forecast_model, "timefm")
         self.assertEqual(config.run.timefm_repo, "google/timesfm-2.5-200m-pytorch")
+        self.assertEqual(config.run.timefm_exog_cols[:4], ["T", "U", "nRAIN", "e_price"])
 
 
 class ForecastingTests(unittest.TestCase):
@@ -59,6 +61,19 @@ class ForecastingTests(unittest.TestCase):
         self.assertIn("RMSE", metrics)
         self.assertIn("MAPE_pct", metrics)
         self.assertIn("RAE", metrics)
+
+    def test_build_zone_model_frame_adds_notebook_covariates(self):
+        times = pd.date_range("2023-01-01", periods=2, freq="h")
+        load = pd.DataFrame({"time": times, "102": [10.0, 11.0]})
+        service_price = pd.DataFrame({"time": times, "102": [0.5, 0.6]})
+        energy_price = pd.DataFrame({"time": times, "102": [1.0, 1.2]})
+        occupancy = pd.DataFrame({"time": times, "102": [0.1, 0.2]})
+        weather = pd.DataFrame({"time": times, "T": [20.0, 21.0], "U": [60.0, 61.0], "nRAIN": [0.0, 1.0]})
+        frame = build_zone_model_frame(load, service_price, energy_price, occupancy, weather, "102")
+        self.assertIn("e_price", frame)
+        self.assertIn("is_weekend", frame)
+        self.assertIn("temp_price_idx", frame)
+        self.assertAlmostEqual(frame["temp_price_idx"].iloc[1], 25.2)
 
 
 class SelectionTests(unittest.TestCase):

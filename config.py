@@ -15,17 +15,28 @@ class RunConfig:
     forecast_start: str | None = None
     horizon_days: int = 4
     history_days: int = 7
+    validation_days: int = 1
     zone_ids: list[str] | None = None
     forecast_model: str = "timefm"
     timefm_repo: str = "google/timesfm-2.5-200m-pytorch"
     timefm_context_hours: int = 168
     timefm_step_horizon: int = 24
+    timefm_exog_cols: list[str] | None = None
+    timefm_diurnal_blend_alpha: float = 1.0
+    timefm_roll_actuals: bool = True
     temperature: float = 0.2
 
     @classmethod
     def from_mapping(cls, raw: dict[str, Any] | None) -> "RunConfig":
         settings = raw or {}
         zone_ids = settings.get("zone_ids", settings.get("zones"))
+        horizon_days = optional_int(settings.get("horizon_days"))
+        history_days = optional_int(settings.get("history_days"))
+        validation_days = optional_int(settings.get("validation_days"))
+        timefm_context_hours = optional_int(settings.get("timefm_context_hours"))
+        timefm_step_horizon = optional_int(settings.get("timefm_step_horizon"))
+        timefm_diurnal_blend_alpha = optional_float(settings.get("timefm_diurnal_blend_alpha"))
+        temperature = optional_float(settings.get("temperature"))
         return cls(
             data_dir=optional_str(settings.get("data_dir")) or "data",
             output_dir=optional_str(settings.get("output_dir")) or "output",
@@ -33,14 +44,20 @@ class RunConfig:
             force_cache=optional_bool(settings.get("force_cache"), False),
             max_poi_rows=optional_int(settings.get("max_poi_rows")),
             forecast_start=optional_str(settings.get("forecast_start")),
-            horizon_days=optional_int(settings.get("horizon_days")) or 4,
-            history_days=optional_int(settings.get("history_days")) or 7,
+            horizon_days=horizon_days if horizon_days is not None else 4,
+            history_days=history_days if history_days is not None else 7,
+            validation_days=validation_days if validation_days is not None else 1,
             zone_ids=normalize_zone_id_list(zone_ids),
             forecast_model=optional_str(settings.get("forecast_model")) or "timefm",
             timefm_repo=optional_str(settings.get("timefm_repo")) or "google/timesfm-2.5-200m-pytorch",
-            timefm_context_hours=optional_int(settings.get("timefm_context_hours")) or 168,
-            timefm_step_horizon=optional_int(settings.get("timefm_step_horizon")) or 24,
-            temperature=optional_float(settings.get("temperature")) or 0.2,
+            timefm_context_hours=timefm_context_hours if timefm_context_hours is not None else 168,
+            timefm_step_horizon=timefm_step_horizon if timefm_step_horizon is not None else 24,
+            timefm_exog_cols=normalize_zone_id_list(settings.get("timefm_exog_cols")),
+            timefm_diurnal_blend_alpha=(
+                timefm_diurnal_blend_alpha if timefm_diurnal_blend_alpha is not None else 1.0
+            ),
+            timefm_roll_actuals=optional_bool(settings.get("timefm_roll_actuals"), True),
+            temperature=temperature if temperature is not None else 0.2,
         )
 
 

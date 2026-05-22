@@ -27,11 +27,15 @@ def run_pipeline(
     forecast_start: str | None = None,
     horizon_days: int = 4,
     history_days: int = 7,
+    validation_days: int = 1,
     zone_ids: str | Iterable[str] | None = None,
     forecast_model: str = "timefm",
     timefm_repo: str = "google/timesfm-2.5-200m-pytorch",
     timefm_context_hours: int = 168,
     timefm_step_horizon: int = 24,
+    timefm_exog_cols: list[str] | None = None,
+    timefm_diurnal_blend_alpha: float = 1.0,
+    timefm_roll_actuals: bool = True,
     temperature: float = 0.2,
 ) -> dict[str, Path]:
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -55,10 +59,14 @@ def run_pipeline(
         forecast_start=forecast_start,
         horizon_days=horizon_days,
         history_days=history_days,
+        validation_days=validation_days,
         forecast_model=forecast_model,
         timefm_repo=timefm_repo,
         timefm_context_hours=timefm_context_hours,
         timefm_step_horizon=timefm_step_horizon,
+        timefm_exog_cols=timefm_exog_cols,
+        timefm_diurnal_blend_alpha=timefm_diurnal_blend_alpha,
+        timefm_roll_actuals=timefm_roll_actuals,
     )
 
     if dry_run:
@@ -87,10 +95,14 @@ def build_contexts(
     forecast_start: str | None,
     horizon_days: int,
     history_days: int,
+    validation_days: int,
     forecast_model: str,
     timefm_repo: str,
     timefm_context_hours: int,
     timefm_step_horizon: int,
+    timefm_exog_cols: list[str] | None,
+    timefm_diurnal_blend_alpha: float,
+    timefm_roll_actuals: bool,
 ) -> tuple[list[dict[str, Any]], dict[str, ForecastResult]]:
     start = pd.Timestamp(forecast_start) if forecast_start else None
     contexts = []
@@ -104,16 +116,21 @@ def build_contexts(
             category=row["category"],
             load=pipeline_data.load,
             service_price=pipeline_data.service_price,
+            energy_price=pipeline_data.energy_price,
             occupancy=pipeline_data.occupancy,
             weather=pipeline_data.weather,
             profile=profile,
             forecast_start=start,
             horizon_days=horizon_days,
             history_days=history_days,
+            validation_days=validation_days,
             forecast_model=forecast_model,
             timefm_repo=timefm_repo,
             timefm_context_hours=timefm_context_hours,
             timefm_step_horizon=timefm_step_horizon,
+            timefm_exog_cols=timefm_exog_cols,
+            timefm_diurnal_blend_alpha=timefm_diurnal_blend_alpha,
+            timefm_roll_actuals=timefm_roll_actuals,
         )
         forecast_results[zone_id] = result
         context = {

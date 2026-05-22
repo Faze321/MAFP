@@ -13,10 +13,20 @@ run:
   forecast_start: null
   horizon_days: 1
   history_days: 7
+  validation_days: 1
   zones:
     - "102"
   forecast_model: "timefm"
   timefm_repo: "google/timesfm-2.5-200m-pytorch"
   timefm_context_hours: 168
   timefm_step_horizon: 24
+  timefm_exog_cols:
+    - "T"
+    - "U"
+    - "nRAIN"
+    - "e_price"
+    - "is_weekend"
+    - "temp_price_idx"
+  timefm_diurnal_blend_alpha: 1.0
+  timefm_roll_actuals: true
   temperature: 0.2

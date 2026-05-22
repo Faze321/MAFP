@@ -100,6 +100,9 @@ def write_forecast_outputs(
                 "zone_id": zone_id,
                 "category": result.summary.get("category"),
                 "forecast_model": result.summary.get("forecast_model"),
+                "calibration_enabled": (result.summary.get("calibration") or {}).get("enabled"),
+                "bias_mean": (result.summary.get("calibration") or {}).get("bias_mean"),
+                "bias_max_abs": (result.summary.get("calibration") or {}).get("bias_max_abs"),
                 "forecast_start": result.summary.get("forecast_start"),
                 "forecast_end": result.summary.get("forecast_end"),
                 "n": metrics.get("n"),
@@ -151,6 +154,15 @@ def write_zone_plot(path: Path, summary: dict[str, Any], hourly: pd.DataFrame) -
         ms=3.2,
         label="Actual",
     )
+    if {"q10_kwh", "q90_kwh"}.issubset(frame.columns) and frame[["q10_kwh", "q90_kwh"]].notna().any().any():
+        ax_main.fill_between(
+            frame["time"],
+            frame["q10_kwh"],
+            frame["q90_kwh"],
+            color="#D85A30",
+            alpha=0.14,
+            label="P10-P90",
+        )
     ax_main.plot(
         frame["time"],
         frame["predicted_kwh"],

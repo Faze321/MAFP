@@ -53,6 +53,16 @@ Runtime defaults can be stored under `run:` in `config.yaml`, so common settings
 
 Set `run.forecast_model: "timefm"` to use `google/timesfm-2.5-200m-pytorch` for load forecasting. Set `run.forecast_model: "seasonal_naive"` for a fast baseline run without TimeFM.
 
+The TimeFM path now follows the `zone102_timefm1.ipynb` workflow:
+
+- `run.history_days: 7` builds the context window.
+- `run.validation_days: 1` reserves the day before `forecast_start` for bias calibration.
+- `run.timefm_exog_cols` controls dynamic numerical covariates. The notebook-style default is `T`, `U`, `nRAIN`, `e_price`, `is_weekend`, and `temp_price_idx`.
+- `run.timefm_diurnal_blend_alpha` blends the TimeFM point forecast with the recent hourly load profile. `1.0` matches the notebook setting; `0.0` disables the blend.
+- `run.timefm_roll_actuals: true` rolls known actual values into the context during multi-day validation/forecast steps.
+
+The first TimeFM run may download model weights from Hugging Face. The dependency list installs TimeFM from the official `google-research/timesfm` repository, plus `torch`, `jax`/`jaxlib`, and `scikit-learn` for the PyTorch model class and covariate regression path.
+
 ## Outputs
 
 Generated files are written to `output/`:
@@ -63,8 +73,8 @@ Generated files are written to `output/`:
 - `rationale_trace.md`: markdown table for a report or paper appendix.
 - `rationale_trace.json`: full structured agent outputs.
 - `forecast_metrics.csv` / `forecast_metrics.md`: per-zone forecast metrics including MAE, RMSE, MAPE, RAE, and WAPE.
-- `forecast_details/zone_<id>_forecast_vs_actual.csv`: hourly actual vs predicted values with residuals.
-- `forecast_details/zone_<id>_forecast_plot.png`: per-zone actual/predicted plot plus residual bars and metric summary.
+- `forecast_details/zone_<id>_forecast_vs_actual.csv`: hourly actual vs predicted values, residuals, TimeFM raw/bias-corrected values, and P10/P50/P90 columns when TimeFM returns quantiles.
+- `forecast_details/zone_<id>_forecast_plot.png`: per-zone actual/predicted plot, P10-P90 band when available, residual bars, and metric summary.
 
 The first full run builds cached POI-to-zone assignments in `output/cache/`. Later runs reuse that cache unless `--force-cache` is passed.
 
