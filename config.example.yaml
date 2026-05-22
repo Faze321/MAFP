@@ -1,0 +1,18 @@
+agent:
+  api_key: "sk-..."
+  base_url: "https://openrouter.ai/api/v1"
+  model: "meta-llama/llama-3.1-8b-instruct"
+  timeout_seconds: 90
+
+run:
+  data_dir: "data"
+  output_dir: "output"
+  dry_run: true
+  force_cache: false
+  max_poi_rows: null
+  forecast_start: null
+  horizon_days: 1
+  history_days: 7
+  zones:
+    - "102"
+  temperature: 0.2

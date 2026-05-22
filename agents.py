@@ -6,7 +6,7 @@ import re
 from dataclasses import dataclass
 from typing import Any, Protocol
 
-from config import OpenRouterConfig
+from config import AgentConfig
 from prompts import SYSTEM_MESSAGE, behavior_prompt, economist_prompt, grid_prompt
 
 
@@ -16,20 +16,20 @@ class ChatClient(Protocol):
 
 
 @dataclass
-class OpenRouterChatClient:
-    config: OpenRouterConfig
+class AgentChatClient:
+    config: AgentConfig
 
     def __post_init__(self) -> None:
         if not self.config.api_key:
-            raise ValueError("OPENROUTER_API_KEY is required when dry-run is disabled")
+            raise ValueError("agent.api_key is required when dry-run is disabled")
         from openai import AsyncOpenAI
 
         headers = {}
-        if self.config.http_referer:
-            headers["HTTP-Referer"] = self.config.http_referer
-        if self.config.title:
-            headers["X-Title"] = self.config.title
-            headers["X-OpenRouter-Title"] = self.config.title
+        # if self.config.http_referer:
+        #     headers["HTTP-Referer"] = self.config.http_referer
+        # if self.config.title:
+        #     headers["X-Title"] = self.config.title
+        #     headers["X-OpenRouter-Title"] = self.config.title
         self._client = AsyncOpenAI(
             api_key=self.config.api_key,
             base_url=self.config.base_url,
@@ -77,7 +77,7 @@ async def run_zone_chain(
         await client.complete_json(economist_prompt(context, grid, behavior), temperature=temperature),
         context,
     )
-    return combine_reports(context, grid, behavior, economist, source="openrouter")
+    return combine_reports(context, grid, behavior, economist, source="model")
 
 
 async def run_all_zone_chains(

@@ -11,7 +11,7 @@ This project implements the conference-work requirement in `Conference work.docx
 4. Execute all five zone chains concurrently with `asyncio`.
 5. Export an explainability table with predicted vs. actual load, rationale, and price shift.
 
-The OpenRouter call path uses the OpenAI Python SDK with `base_url=https://openrouter.ai/api/v1`.
+The model call path uses the OpenAI Python SDK with an OpenAI-compatible `base_url`.
 
 ## Setup
 
@@ -24,24 +24,32 @@ pip install -r requirements.txt
 For local validation without an API key:
 
 ```powershell
-python main.py --dry-run
+Copy-Item config.example.yaml config.yaml
+# Edit config.yaml run.zones / run.horizon_days / run.dry_run as needed
+python main.py
 ```
 
-For OpenRouter-backed agents:
+For model-backed agents:
 
 ```powershell
-Copy-Item config.example.json config.json
-# Edit config.json and set openrouter.api_key / openrouter.model
+Copy-Item config.example.yaml config.yaml
+# Edit config.yaml and set agent.api_key / agent.model / agent.base_url
+# Set run.dry_run: false
 python main.py
 ```
 
 Useful options:
 
 ```powershell
+python main.py
 python main.py --dry-run --horizon-days 4 --history-days 7
-python main.py --config config.json --model anthropic/claude-sonnet-4.5 --forecast-start "2023-02-25 00:00:00"
+python main.py --dry-run --zones 102 --horizon-days 1
+python main.py --dry-run --zones 102,104,108 --horizon-days 1
+python main.py --config config.yaml --model anthropic/claude-sonnet-4.5 --forecast-start "2023-02-25 00:00:00"
 python main.py --force-cache
 ```
+
+Runtime defaults can be stored under `run:` in `config.yaml`, so common settings do not need to be typed each time. Command-line options override YAML values only for that run. When `run.zones` / `--zones` is omitted, the pipeline keeps the original five-category automatic zone selection. When zones are provided, the pipeline skips category selection and validates only the specified zone ids.
 
 ## Outputs
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
+from config import AppConfig
 from orchestrator import run_pipeline
 
 
@@ -11,36 +12,57 @@ def build_parser() -> argparse.ArgumentParser:
         prog="python main.py",
         description="Run Multi-Agent Prescriptive Forecasting on UrbanEV data.",
     )
-    parser.add_argument("--data-dir", default="data", help="Directory containing UrbanEV CSV files.")
-    parser.add_argument("--output-dir", default="output", help="Directory for generated reports.")
-    parser.add_argument("--config", default="config.json", help="JSON config file for OpenRouter settings.")
-    parser.add_argument("--model", default=None, help="OpenRouter model id, for example openai/gpt-4o-mini.")
-    parser.add_argument("--dry-run", action="store_true", help="Skip LLM calls and use deterministic heuristics.")
-    parser.add_argument("--force-cache", action="store_true", help="Rebuild cached zone profiles and POI assignment.")
+    parser.add_argument("--config", default="config.yaml", help="YAML config file for run and model settings.")
+    parser.add_argument("--data-dir", default=None, help="Directory containing UrbanEV CSV files.")
+    parser.add_argument("--output-dir", default=None, help="Directory for generated reports.")
+    parser.add_argument("--model", default=None, help="Model id, for example openai/gpt-4o-mini.")
+    parser.add_argument(
+        "--dry-run",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Skip LLM calls and use deterministic heuristics.",
+    )
+    parser.add_argument(
+        "--force-cache",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Rebuild cached zone profiles and POI assignment.",
+    )
     parser.add_argument("--max-poi-rows", type=int, default=None, help="Limit POI rows for quick experiments.")
     parser.add_argument("--forecast-start", default=None, help="ISO timestamp for the forecast window start.")
-    parser.add_argument("--horizon-days", type=int, default=4, help="Forecast horizon.")
-    parser.add_argument("--history-days", type=int, default=7, help="History window used for the zone snippets.")
-    parser.add_argument("--temperature", type=float, default=0.2, help="LLM sampling temperature.")
+    parser.add_argument("--horizon-days", type=int, default=None, help="Forecast horizon.")
+    parser.add_argument("--history-days", type=int, default=None, help="History window used for the zone snippets.")
+    parser.add_argument(
+        "--zones",
+        nargs="+",
+        default=None,
+        help=(
+            "UrbanEV zone id(s) to validate directly. If omitted, the pipeline keeps the automatic five-zone category selection."
+        ),
+    )
+    parser.add_argument("--temperature", type=float, default=None, help="LLM sampling temperature.")
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-
+    config_path = Path(args.config)
+    app_config = AppConfig.from_file(config_path, required=False)
+    run_config = app_config.run
 
     outputs = run_pipeline(
-        data_dir=Path(args.data_dir),
-        output_dir=Path(args.output_dir),
-        config_path=Path(args.config),
+        data_dir=Path(args.data_dir or run_config.data_dir),
+        output_dir=Path(args.output_dir or run_config.output_dir),
+        config_path=config_path,
         model=args.model,
-        dry_run=args.dry_run,
-        force_cache=args.force_cache,
-        max_poi_rows=args.max_poi_rows,
-        forecast_start=args.forecast_start,
-        horizon_days=args.horizon_days,
-        history_days=args.history_days,
-        temperature=args.temperature,
+        dry_run=args.dry_run if args.dry_run is not None else run_config.dry_run,
+        force_cache=args.force_cache if args.force_cache is not None else run_config.force_cache,
+        max_poi_rows=args.max_poi_rows if args.max_poi_rows is not None else run_config.max_poi_rows,
+        forecast_start=args.forecast_start or run_config.forecast_start,
+        horizon_days=args.horizon_days if args.horizon_days is not None else run_config.horizon_days,
+        history_days=args.history_days if args.history_days is not None else run_config.history_days,
+        zone_ids=args.zones if args.zones is not None else run_config.zone_ids,
+        temperature=args.temperature if args.temperature is not None else run_config.temperature,
     )
     print("Generated outputs:")
     for name, path in outputs.items():

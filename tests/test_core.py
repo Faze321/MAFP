@@ -4,8 +4,9 @@ from pathlib import Path
 import pandas as pd
 
 from agents import extract_json_object
-from config import OpenRouterConfig
+from config import AgentConfig, AppConfig
 from forecasting import seasonal_naive_forecast
+from orchestrator import normalize_zone_ids, select_requested_zones
 from zone_selection import select_zone_categories
 
 
@@ -16,17 +17,18 @@ class AgentParsingTests(unittest.TestCase):
 
 
 class ConfigTests(unittest.TestCase):
-    def test_reads_openrouter_json_config(self):
-        path = Path("output") / "test_config.json"
-        path.parent.mkdir(exist_ok=True)
-        path.write_text(
-            '{"openrouter": {"api_key": "sk-or-test", "model": "test/model", "timeout_seconds": 12}}',
-            encoding="utf-8",
-        )
-        config = OpenRouterConfig.from_json(path)
-        self.assertEqual(config.api_key, "sk-or-test")
-        self.assertEqual(config.model, "test/model")
-        self.assertEqual(config.timeout_seconds, 12)
+    def test_reads_agent_yaml_config(self):
+        config = AgentConfig.from_file(Path("config.example.yaml"))
+        self.assertEqual(config.api_key, "sk-...")
+        self.assertEqual(config.model, "meta-llama/llama-3.1-8b-instruct")
+        self.assertEqual(config.timeout_seconds, 90)
+
+    def test_reads_run_yaml_config(self):
+        config = AppConfig.from_file(Path("config.example.yaml"))
+        self.assertTrue(config.run.dry_run)
+        self.assertEqual(config.run.horizon_days, 1)
+        self.assertEqual(config.run.history_days, 7)
+        self.assertEqual(config.run.zone_ids, ["102"])
 
 
 class ForecastingTests(unittest.TestCase):
@@ -44,6 +46,40 @@ class ForecastingTests(unittest.TestCase):
 
 
 class SelectionTests(unittest.TestCase):
+    def test_normalizes_requested_zone_ids(self):
+        zone_ids = normalize_zone_ids(["102,104", " 108 ", "104"])
+        self.assertEqual(zone_ids, ["102", "104", "108"])
+
+    def test_selects_requested_zones_in_user_order(self):
+        profiles = pd.DataFrame(
+            {
+                "zone_id": ["101", "102", "104"],
+                "longitude": [0.0, 1.0, 2.0],
+                "latitude": [0.0, 1.0, 2.0],
+                "station_count": [1, 2, 3],
+                "charge_count": [10, 20, 30],
+                "capacity_kw_proxy": [110.0, 220.0, 330.0],
+                "mean_load_kwh": [5.0, 6.0, 7.0],
+                "peak_load_kwh": [8.0, 9.0, 10.0],
+                "peak_capacity_ratio": [0.1, 0.2, 0.3],
+                "load_cv": [0.1, 0.2, 0.3],
+                "burstiness_p99_mean": [1.1, 1.2, 1.3],
+                "morning_ratio": [1.0, 1.0, 1.0],
+                "noon_ratio": [1.0, 1.0, 1.0],
+                "evening_ratio": [1.0, 1.0, 1.0],
+                "night_ratio": [1.0, 1.0, 1.0],
+                "weekend_ratio": [1.0, 1.0, 1.0],
+                "poi_food": [0, 0, 0],
+                "poi_business": [0, 0, 0],
+                "poi_lifestyle": [0, 0, 0],
+                "poi_total": [0, 0, 0],
+                "mean_service_price": [0.7, 0.8, 0.9],
+            }
+        )
+        selected = select_requested_zones(profiles, ["104", "102"])
+        self.assertEqual(selected["zone_id"].tolist(), ["104", "102"])
+        self.assertEqual(selected["category"].tolist(), ["User-selected", "User-selected"])
+
     def test_selects_five_unique_categories(self):
         profiles = pd.DataFrame(
             {

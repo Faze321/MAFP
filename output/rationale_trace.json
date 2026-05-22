@@ -8,11 +8,11 @@
     "actual_load_kwh": 672.0,
     "wape_pct": 129.14,
     "grid_stress_level": "Low",
-    "agent_reasoning": "The demand is expected to be high due to the high business/residential POI density, with stronger morning and noon demand signals.",
-    "suggested_price_shift_pct": -5.0,
-    "action_label": "Reduce service fee by 5%",
-    "price_rationale": "Residential users are more price-sensitive, and the predicted change in demand is moderate. A small price reduction will help manage load stress without discouraging users.",
-    "source": "openrouter"
+    "agent_reasoning": "CBD / Office demand is best explained by night plateau and the local POI mix of 1194 assigned POIs.",
+    "suggested_price_shift_pct": 0.0,
+    "action_label": "Hold price",
+    "price_rationale": "Low stress with +111.7% expected load change; category elasticity proxy is CBD / Office.",
+    "source": "dry-run"
   },
   {
     "category": "Residential",
@@ -23,41 +23,41 @@
     "actual_load_kwh": 1344.0,
     "wape_pct": 67.43,
     "grid_stress_level": "Low",
-    "agent_reasoning": "The demand is high due to a high number of lifestyle POIs (3455) and a high mean occupancy (2.86) in the zone, resulting in a high load CV (0.6634) and burstiness (2.2246). The weather is mild with a mean temperature of 16.78°C and low humidity (57.33%), which does not significantly impact charging demand. The load shape is characterized by a high night/evening charging plateau, which is typical for residential areas.",
+    "agent_reasoning": "Residential demand is best explained by night plateau and the local POI mix of 6400 assigned POIs.",
     "suggested_price_shift_pct": -5.0,
-    "action_label": "Reduce service fee by 5%",
-    "price_rationale": "Residential users are more price-sensitive, and the current grid stress level is Low. A price reduction will help manage demand without causing extreme changes.",
-    "source": "openrouter"
+    "action_label": "Utilization incentive",
+    "price_rationale": "Low stress with -54.9% expected load change; category elasticity proxy is Residential.",
+    "source": "dry-run"
   },
   {
     "category": "Transport Hub",
     "zone_id": "519",
-    "predicted_load_kwh": 17391.19,
-    "predicted_peak_kwh": 251.19,
-    "predicted_change_pct": 24.19,
+    "predicted_load_kwh": 16762.94,
+    "predicted_peak_kwh": 237.43,
+    "predicted_change_pct": 22.28,
     "actual_load_kwh": 14225.21,
     "wape_pct": 22.64,
     "grid_stress_level": "Low",
-    "agent_reasoning": "The high demand is driven by the high charging capacity and bursty load profile of the transport hub, with a peak capacity ratio of 1.8035 and a mean load of 996.8471 kWh. The POI mix, with a high number of food and lifestyle establishments, also contributes to the high demand. The weather is mild, with a mean temperature of 16.78°C and low humidity, which is not a significant factor in this case. The temporal markers, with a high morning and evening load, also contribute to the high demand.",
-    "suggested_price_shift_pct": 0.05,
-    "action_label": "Gradual price increase",
-    "price_rationale": "Residential users are more price-sensitive, so a small price increase is suggested to manage load stress without affecting them significantly. CBD and hub users are less price-sensitive, so a moderate price increase is not necessary at this time.",
-    "source": "openrouter"
+    "agent_reasoning": "Transport Hub demand is best explained by night plateau, evening lift and the local POI mix of 4554 assigned POIs.",
+    "suggested_price_shift_pct": 0.0,
+    "action_label": "Hold price",
+    "price_rationale": "Low stress with +22.3% expected load change; category elasticity proxy is Transport Hub.",
+    "source": "dry-run"
   },
   {
     "category": "Commercial / Mall",
     "zone_id": "711",
-    "predicted_load_kwh": 2723.19,
-    "predicted_peak_kwh": 46.51,
-    "predicted_change_pct": 5.17,
+    "predicted_load_kwh": 2581.31,
+    "predicted_peak_kwh": 43.2,
+    "predicted_change_pct": 22.38,
     "actual_load_kwh": 1650.25,
     "wape_pct": 78.91,
     "grid_stress_level": "Low",
-    "agent_reasoning": "The demand is high due to the high density of food and lifestyle POIs in the area, which attracts a large number of people during the evening and weekends, resulting in increased EV charging demand.",
-    "suggested_price_shift_pct": -5.0,
-    "action_label": "Reduce price to mitigate high demand",
-    "price_rationale": "Residential users are more price-sensitive, and the high demand is driven by high food/lifestyle POI density and evening/weekend demand lift. A small price reduction is suggested to encourage more efficient charging behavior.",
-    "source": "openrouter"
+    "agent_reasoning": "Commercial / Mall demand is best explained by night plateau, evening lift and the local POI mix of 7615 assigned POIs.",
+    "suggested_price_shift_pct": 0.0,
+    "action_label": "Hold price",
+    "price_rationale": "Low stress with +22.4% expected load change; category elasticity proxy is Commercial / Mall.",
+    "source": "dry-run"
   },
   {
     "category": "Industrial",
@@ -68,10 +68,10 @@
     "actual_load_kwh": 96867.0,
     "wape_pct": 6.98,
     "grid_stress_level": "Low",
-    "agent_reasoning": "Demand is driven by high POI density, particularly lifestyle and business, with stable high base load and capacity.",
-    "suggested_price_shift_pct": 0.5,
-    "action_label": "Moderate price increase",
-    "price_rationale": "Residential users are more price-sensitive, but grid stress is low; a moderate price increase will encourage more efficient charging without impacting load significantly.",
-    "source": "openrouter"
+    "agent_reasoning": "Industrial demand is best explained by night plateau, evening lift and the local POI mix of 1674 assigned POIs.",
+    "suggested_price_shift_pct": 0.0,
+    "action_label": "Hold price",
+    "price_rationale": "Low stress with +1.3% expected load change; category elasticity proxy is Industrial.",
+    "source": "dry-run"
   }
 ]
