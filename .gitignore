@@ -8,5 +8,6 @@ config.yml
 *.egg-info/
 .pytest_cache/
 
+test/
 test.py
 test.ipynb
