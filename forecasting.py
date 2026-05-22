@@ -251,21 +251,23 @@ def timefm_forecast(
             context_hours,
             exog_cols,
         )
+        raw_point = raw[:chunk_horizon]
+        raw_q10 = q10[:chunk_horizon]
+        raw_q90 = q90[:chunk_horizon]
         bias = align_vector(bias_vec, chunk_horizon)
-        bias_corrected = np.clip(raw[:chunk_horizon] - bias, 0, None)
+        bias_corrected = np.clip(raw_point - bias, 0, None)
         point = blend_with_diurnal(
             bias_corrected,
             diurnal_for_times(chunk_times, diurnal_by_hour),
             diurnal_blend_alpha,
         )
-        q10 = np.clip(q10[:chunk_horizon] - bias, 0, None)
-        q90 = np.clip(q90[:chunk_horizon] - bias, 0, None)
+        q10, q90 = rebuild_quantile_interval(point, raw_q10, raw_q90)
 
         rows.append(
             pd.DataFrame(
                 {
                     "time": chunk_times,
-                    "raw_predicted_kwh": raw[:chunk_horizon],
+                    "raw_predicted_kwh": raw_point,
                     "bias_corrected_kwh": bias_corrected,
                     "predicted_kwh": point,
                     "q10_kwh": q10,
@@ -454,6 +456,24 @@ def align_vector(values: np.ndarray, target: int) -> np.ndarray:
     if len(arr) == 0:
         return np.zeros(target, dtype=np.float64)
     return np.concatenate([arr, np.repeat(arr[-1], target - len(arr))])
+
+
+def rebuild_quantile_interval(
+    point: np.ndarray,
+    raw_q10: np.ndarray,
+    raw_q90: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray]:
+    point_arr = np.asarray(point, dtype=np.float64)
+    q10_arr = np.asarray(raw_q10, dtype=np.float64)
+    q90_arr = np.asarray(raw_q90, dtype=np.float64)
+    raw_width = q90_arr - q10_arr
+    valid = np.isfinite(point_arr) & np.isfinite(raw_width)
+    half_width = np.where(valid, np.maximum(raw_width, 0.0) / 2.0, np.nan)
+    rebuilt_q10 = np.where(valid, np.clip(point_arr - half_width, 0, None), np.nan)
+    rebuilt_q90 = np.where(valid, point_arr + half_width, np.nan)
+    rebuilt_q10 = np.where(valid, np.minimum(rebuilt_q10, point_arr), np.nan)
+    rebuilt_q90 = np.where(valid, np.maximum(rebuilt_q90, point_arr), np.nan)
+    return rebuilt_q10, rebuilt_q90
 
 
 def build_diurnal_profile(history: pd.DataFrame) -> pd.Series:

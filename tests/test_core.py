@@ -1,11 +1,17 @@
 import unittest
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 from agents import extract_json_object
 from config import AgentConfig, AppConfig
-from forecasting import build_zone_model_frame, compute_forecast_metrics, seasonal_naive_forecast
+from forecasting import (
+    build_zone_model_frame,
+    compute_forecast_metrics,
+    rebuild_quantile_interval,
+    seasonal_naive_forecast,
+)
 from orchestrator import normalize_zone_ids, select_requested_zones
 from zone_selection import select_zone_categories
 
@@ -74,6 +80,20 @@ class ForecastingTests(unittest.TestCase):
         self.assertIn("is_weekend", frame)
         self.assertIn("temp_price_idx", frame)
         self.assertAlmostEqual(frame["temp_price_idx"].iloc[1], 25.2)
+
+    def test_rebuild_quantile_interval_centers_final_prediction(self):
+        point = np.array([100.0, 2.0, 50.0])
+        raw_q10 = np.array([40.0, 0.0, np.nan])
+        raw_q90 = np.array([80.0, 10.0, np.nan])
+        q10, q90 = rebuild_quantile_interval(point, raw_q10, raw_q90)
+        self.assertEqual(q10[0], 80.0)
+        self.assertEqual(q90[0], 120.0)
+        self.assertEqual(q10[1], 0.0)
+        self.assertEqual(q90[1], 7.0)
+        self.assertTrue(np.isnan(q10[2]))
+        self.assertTrue(np.isnan(q90[2]))
+        self.assertTrue(np.all(q10[:2] <= point[:2]))
+        self.assertTrue(np.all(q90[:2] >= point[:2]))
 
 
 class SelectionTests(unittest.TestCase):

@@ -1,3 +1,0 @@
-zone_id,category,forecast_model,calibration_enabled,bias_mean,bias_max_abs,forecast_start,forecast_end,n,MAE,RMSE,MAPE_pct,RAE,WAPE_pct,forecast_total_kwh,actual_total_kwh,forecast_peak_kwh,actual_peak_kwh,grid_stress_level
-102,User-selected,timefm,True,-3.2398,8.8752,2023-02-28T00:00:00,2023-02-28T23:00:00,24,10.8215,13.3851,31.2921,0.894,23.6824,1354.08,1096.67,65.12,63.0,Low
-104,User-selected,timefm,True,0.6273,9.9807,2023-02-28T00:00:00,2023-02-28T23:00:00,24,3.5318,3.7854,72.0545,1.2109,62.0977,146.76,136.5,7.66,10.5,Low
