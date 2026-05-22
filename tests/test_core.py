@@ -5,7 +5,7 @@ import pandas as pd
 
 from agents import extract_json_object
 from config import AgentConfig, AppConfig
-from forecasting import seasonal_naive_forecast
+from forecasting import compute_forecast_metrics, seasonal_naive_forecast
 from orchestrator import normalize_zone_ids, select_requested_zones
 from zone_selection import select_zone_categories
 
@@ -43,6 +43,20 @@ class ForecastingTests(unittest.TestCase):
         self.assertEqual(len(result), 48)
         self.assertIn("predicted_kwh", result)
         self.assertGreater(result["predicted_kwh"].sum(), 0)
+
+    def test_forecast_metrics_include_error_standards(self):
+        hourly = pd.DataFrame(
+            {
+                "actual_kwh": [10.0, 20.0, 30.0],
+                "predicted_kwh": [12.0, 18.0, 33.0],
+            }
+        )
+        metrics = compute_forecast_metrics(hourly)
+        self.assertEqual(metrics["n"], 3)
+        self.assertIn("MAE", metrics)
+        self.assertIn("RMSE", metrics)
+        self.assertIn("MAPE_pct", metrics)
+        self.assertIn("RAE", metrics)
 
 
 class SelectionTests(unittest.TestCase):

@@ -13,6 +13,10 @@ TRACE_COLUMNS = [
     "predicted_load_kwh",
     "predicted_change_pct",
     "actual_load_kwh",
+    "mae_kwh",
+    "rmse_kwh",
+    "mape_pct",
+    "rae",
     "wape_pct",
     "grid_stress_level",
     "agent_reasoning",
@@ -29,6 +33,7 @@ def write_outputs(
     selected_zones: pd.DataFrame,
     contexts: list[dict[str, Any]],
     reports: list[dict[str, Any]],
+    forecast_results: dict[str, Any],
 ) -> dict[str, Path]:
     output_dir.mkdir(parents=True, exist_ok=True)
     selected_path = output_dir / "selected_zones.csv"
@@ -36,6 +41,9 @@ def write_outputs(
     trace_csv = output_dir / "rationale_trace.csv"
     trace_md = output_dir / "rationale_trace.md"
     trace_json = output_dir / "rationale_trace.json"
+    metrics_csv = output_dir / "forecast_metrics.csv"
+    metrics_md = output_dir / "forecast_metrics.md"
+    details_dir = output_dir / "forecast_details"
 
     selected_zones.to_csv(selected_path, index=False)
     contexts_path.write_text(json.dumps(contexts, indent=2, ensure_ascii=False), encoding="utf-8")
@@ -45,14 +53,162 @@ def write_outputs(
     trace.to_csv(trace_csv, index=False)
     trace_json.write_text(json.dumps(reports, indent=2, ensure_ascii=False), encoding="utf-8")
     trace_md.write_text(markdown_table(trace), encoding="utf-8")
+    metrics = write_forecast_outputs(details_dir, metrics_csv, metrics_md, forecast_results)
 
-    return {
+    outputs = {
         "selected_zones": selected_path,
         "context_snippets": contexts_path,
         "rationale_trace_csv": trace_csv,
         "rationale_trace_md": trace_md,
         "rationale_trace_json": trace_json,
+        "forecast_metrics_csv": metrics_csv,
+        "forecast_metrics_md": metrics_md,
+        "forecast_details_dir": details_dir,
     }
+    outputs.update(metrics)
+    return outputs
+
+
+def write_forecast_outputs(
+    details_dir: Path,
+    metrics_csv: Path,
+    metrics_md: Path,
+    forecast_results: dict[str, Any],
+) -> dict[str, Path]:
+    details_dir.mkdir(parents=True, exist_ok=True)
+    metric_rows = []
+    plot_paths = {}
+
+    for zone_id, result in forecast_results.items():
+        safe_zone = safe_filename(zone_id)
+        hourly = result.hourly.copy()
+        hourly.insert(0, "zone_id", zone_id)
+        hourly.insert(1, "category", result.summary.get("category"))
+        hourly_path = details_dir / f"zone_{safe_zone}_forecast_vs_actual.csv"
+        plot_path = details_dir / f"zone_{safe_zone}_forecast_plot.png"
+        old_svg_path = details_dir / f"zone_{safe_zone}_forecast_plot.svg"
+        hourly.to_csv(hourly_path, index=False)
+        if old_svg_path.exists():
+            old_svg_path.unlink()
+        write_zone_plot(plot_path, result.summary, hourly)
+        plot_paths[f"zone_{safe_zone}_forecast_csv"] = hourly_path
+        plot_paths[f"zone_{safe_zone}_forecast_plot"] = plot_path
+
+        metrics = result.summary.get("metrics", {}) or {}
+        metric_rows.append(
+            {
+                "zone_id": zone_id,
+                "category": result.summary.get("category"),
+                "forecast_start": result.summary.get("forecast_start"),
+                "forecast_end": result.summary.get("forecast_end"),
+                "n": metrics.get("n"),
+                "MAE": metrics.get("MAE"),
+                "RMSE": metrics.get("RMSE"),
+                "MAPE_pct": metrics.get("MAPE_pct"),
+                "RAE": metrics.get("RAE"),
+                "WAPE_pct": metrics.get("WAPE_pct"),
+                "forecast_total_kwh": result.summary.get("forecast_total_kwh"),
+                "actual_total_kwh": result.summary.get("actual_total_kwh"),
+                "forecast_peak_kwh": result.summary.get("forecast_peak_kwh"),
+                "actual_peak_kwh": result.summary.get("actual_peak_kwh"),
+                "grid_stress_level": result.summary.get("grid_stress_level"),
+            }
+        )
+
+    metrics_frame = pd.DataFrame(metric_rows)
+    metrics_frame.to_csv(metrics_csv, index=False)
+    metrics_md.write_text(markdown_table(metrics_frame), encoding="utf-8")
+    return plot_paths
+
+
+def write_zone_plot(path: Path, summary: dict[str, Any], hourly: pd.DataFrame) -> None:
+    try:
+        import matplotlib
+
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+        import matplotlib.gridspec as gridspec
+    except ModuleNotFoundError as exc:
+        raise RuntimeError("matplotlib is required for forecast plots. Install it with: pip install matplotlib") from exc
+
+    frame = hourly.copy()
+    frame["time"] = pd.to_datetime(frame["time"])
+    frame["hour_index"] = range(len(frame))
+
+    fig = plt.figure(figsize=(16, 9), dpi=140)
+    gs = gridspec.GridSpec(2, 2, height_ratios=[2.2, 1.0], width_ratios=[3.2, 1.0], hspace=0.34, wspace=0.22)
+    ax_main = fig.add_subplot(gs[0, :])
+    ax_resid = fig.add_subplot(gs[1, 0])
+    ax_metrics = fig.add_subplot(gs[1, 1])
+
+    ax_main.plot(
+        frame["time"],
+        frame["actual_kwh"],
+        color="#185FA5",
+        lw=2.0,
+        marker="o",
+        ms=3.2,
+        label="Actual",
+    )
+    ax_main.plot(
+        frame["time"],
+        frame["predicted_kwh"],
+        color="#D85A30",
+        lw=2.0,
+        ls="--",
+        marker="s",
+        ms=3.0,
+        label="Predicted",
+    )
+    ax_main.set_title(f"Zone {summary.get('zone_id')} Forecast vs Actual", fontsize=15, fontweight="bold")
+    ax_main.set_ylabel("Load (kWh)")
+    ax_main.grid(axis="y", alpha=0.25)
+    ax_main.legend(loc="upper left", frameon=False)
+
+    errors = frame["error_kwh"].astype(float)
+    colors = ["#0F6E56" if value >= 0 else "#D85A30" for value in errors]
+    ax_resid.bar(frame["time"], errors, color=colors, width=0.03, alpha=0.82)
+    ax_resid.axhline(0, color="#6B7280", lw=0.9)
+    ax_resid.set_title("Residuals (Actual - Predicted)", fontsize=11, fontweight="bold")
+    ax_resid.set_ylabel("Error (kWh)")
+    ax_resid.grid(axis="y", alpha=0.22)
+
+    metrics = summary.get("metrics", {}) or {}
+    metric_lines = [
+        ("MAE", format_metric(metrics.get("MAE"))),
+        ("RMSE", format_metric(metrics.get("RMSE"))),
+        ("MAPE", f"{format_metric(metrics.get('MAPE_pct'))}%"),
+        ("RAE", format_metric(metrics.get("RAE"))),
+        ("WAPE", f"{format_metric(metrics.get('WAPE_pct'))}%"),
+    ]
+    ax_metrics.axis("off")
+    ax_metrics.set_title("Evaluation", fontsize=11, fontweight="bold", loc="left")
+    for idx, (label, value) in enumerate(metric_lines):
+        y = 0.88 - idx * 0.16
+        ax_metrics.text(0.02, y, label, fontsize=11, color="#374151", transform=ax_metrics.transAxes)
+        ax_metrics.text(0.98, y, value, fontsize=11, fontweight="bold", ha="right", transform=ax_metrics.transAxes)
+
+    for axis in (ax_main, ax_resid):
+        axis.tick_params(axis="x", rotation=30)
+
+    fig.autofmt_xdate()
+    fig.tight_layout()
+    fig.savefig(path, bbox_inches="tight")
+    plt.close(fig)
+
+
+def format_metric(value: Any) -> str:
+    if value is None or pd.isna(value):
+        return "N/A"
+    try:
+        return f"{float(value):.3f}"
+    except (TypeError, ValueError):
+        return str(value)
+
+
+def safe_filename(value: Any) -> str:
+    text = str(value)
+    return "".join(char if char.isalnum() or char in {"-", "_"} else "_" for char in text)
 
 
 def markdown_table(frame: pd.DataFrame) -> str:

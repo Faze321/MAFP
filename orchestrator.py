@@ -10,7 +10,7 @@ import pandas as pd
 from agents import AgentChatClient, run_all_zone_chains
 from config import AgentConfig
 from data_loader import build_zone_profiles, load_pipeline_data
-from forecasting import forecast_zone
+from forecasting import ForecastResult, forecast_zone
 from reporting import write_outputs
 from zone_selection import select_zone_categories
 
@@ -45,7 +45,7 @@ def run_pipeline(
     )
     selected_zone_ids = selected_zones["zone_id"].astype(str).tolist()
     pipeline_data = load_pipeline_data(data_dir, profiles, selected_zone_ids)
-    contexts = build_contexts(
+    contexts, forecast_results = build_contexts(
         pipeline_data=pipeline_data,
         selected_zones=selected_zones,
         forecast_start=forecast_start,
@@ -68,6 +68,7 @@ def run_pipeline(
         selected_zones=selected_zones,
         contexts=contexts,
         reports=reports,
+        forecast_results=forecast_results,
     )
 
 
@@ -78,9 +79,10 @@ def build_contexts(
     forecast_start: str | None,
     horizon_days: int,
     history_days: int,
-) -> list[dict[str, Any]]:
+) -> tuple[list[dict[str, Any]], dict[str, ForecastResult]]:
     start = pd.Timestamp(forecast_start) if forecast_start else None
     contexts = []
+    forecast_results = {}
     profiles_by_zone = pipeline_data.profiles.set_index("zone_id", drop=False)
     for row in selected_zones.to_dict(orient="records"):
         zone_id = str(row["zone_id"])
@@ -97,6 +99,7 @@ def build_contexts(
             horizon_days=horizon_days,
             history_days=history_days,
         )
+        forecast_results[zone_id] = result
         context = {
             **result.summary,
             "selection_reason": row["selection_reason"],
@@ -107,7 +110,7 @@ def build_contexts(
             },
         }
         contexts.append(context)
-    return contexts
+    return contexts, forecast_results
 
 
 def normalize_zone_ids(zone_ids: str | Iterable[str] | None) -> list[str]:

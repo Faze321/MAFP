@@ -60,6 +60,9 @@ Generated files are written to `output/`:
 - `rationale_trace.csv`: machine-readable explainability table.
 - `rationale_trace.md`: markdown table for a report or paper appendix.
 - `rationale_trace.json`: full structured agent outputs.
+- `forecast_metrics.csv` / `forecast_metrics.md`: per-zone forecast metrics including MAE, RMSE, MAPE, RAE, and WAPE.
+- `forecast_details/zone_<id>_forecast_vs_actual.csv`: hourly actual vs predicted values with residuals.
+- `forecast_details/zone_<id>_forecast_plot.png`: per-zone actual/predicted plot plus residual bars and metric summary.
 
 The first full run builds cached POI-to-zone assignments in `output/cache/`. Later runs reuse that cache unless `--force-cache` is passed.
 

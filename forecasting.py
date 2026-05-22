@@ -44,6 +44,8 @@ def forecast_zone(
 
     hourly = seasonal_naive_forecast(history, forecast_start, horizon_hours)
     hourly = hourly.merge(actual, on="time", how="left")
+    hourly = add_error_columns(hourly)
+    metrics = compute_forecast_metrics(hourly)
 
     price_summary = summarize_price(service_price, zone_id, history_start, forecast_end)
     weather_summary = summarize_weather(weather, forecast_start, forecast_end)
@@ -56,9 +58,6 @@ def forecast_zone(
     predicted_change_pct = pct_change(forecast_total, previous_total)
     actual_total = float(hourly["actual_kwh"].sum()) if hourly["actual_kwh"].notna().any() else None
     actual_peak = float(hourly["actual_kwh"].max()) if hourly["actual_kwh"].notna().any() else None
-    wape = None
-    if actual_total and actual_total > 0:
-        wape = float((hourly["predicted_kwh"] - hourly["actual_kwh"]).abs().sum() / actual_total * 100)
 
     peak_capacity_ratio = forecast_peak / capacity if capacity > 0 else 0.0
     stress_level = stress_from_ratio(peak_capacity_ratio)
@@ -75,7 +74,11 @@ def forecast_zone(
         "predicted_change_pct": round(predicted_change_pct, 2),
         "actual_total_kwh": round(actual_total, 2) if actual_total is not None else None,
         "actual_peak_kwh": round(actual_peak, 2) if actual_peak is not None else None,
-        "wape_pct": round(wape, 2) if wape is not None else None,
+        "mae_kwh": metrics.get("MAE"),
+        "rmse_kwh": metrics.get("RMSE"),
+        "mape_pct": metrics.get("MAPE_pct"),
+        "rae": metrics.get("RAE"),
+        "wape_pct": metrics.get("WAPE_pct"),
         "capacity_kw_proxy": round(capacity, 2),
         "peak_capacity_ratio": round(peak_capacity_ratio, 3),
         "grid_stress_level": stress_level,
@@ -86,8 +89,58 @@ def forecast_zone(
         "daily_history_kwh": daily_totals(history, "actual_kwh"),
         "daily_forecast_kwh": daily_totals(hourly, "predicted_kwh"),
         "hourly_shape": hourly_shape(history),
+        "metrics": metrics,
     }
     return ForecastResult(hourly=hourly, summary=summary)
+
+
+def add_error_columns(hourly: pd.DataFrame) -> pd.DataFrame:
+    frame = hourly.copy()
+    if "actual_kwh" not in frame:
+        frame["actual_kwh"] = np.nan
+    frame["error_kwh"] = frame["actual_kwh"] - frame["predicted_kwh"]
+    frame["abs_error_kwh"] = frame["error_kwh"].abs()
+    frame["abs_pct_error"] = np.where(
+        frame["actual_kwh"].abs() > 1e-9,
+        frame["abs_error_kwh"] / frame["actual_kwh"].abs() * 100.0,
+        np.nan,
+    )
+    return frame
+
+
+def compute_forecast_metrics(hourly: pd.DataFrame) -> dict[str, float | None]:
+    valid = hourly[["actual_kwh", "predicted_kwh"]].dropna()
+    if valid.empty:
+        return {
+            "MAE": None,
+            "RMSE": None,
+            "MAPE_pct": None,
+            "RAE": None,
+            "WAPE_pct": None,
+            "n": 0,
+        }
+
+    actual = valid["actual_kwh"].astype(float).to_numpy()
+    predicted = valid["predicted_kwh"].astype(float).to_numpy()
+    error = actual - predicted
+    abs_error = np.abs(error)
+    mae = float(abs_error.mean())
+    rmse = float(np.sqrt(np.mean(error * error)))
+    denom = np.where(np.abs(actual) > 1e-9, np.abs(actual), np.nan)
+    mape = float(np.nanmean(abs_error / denom) * 100.0)
+    rae_denom = float(np.sum(np.abs(actual - actual.mean())))
+    rae = float(np.sum(abs_error) / rae_denom) if rae_denom > 1e-9 else None
+    actual_sum = float(np.sum(np.abs(actual)))
+    wape = float(np.sum(abs_error) / actual_sum * 100.0) if actual_sum > 1e-9 else None
+
+    return {
+        "MAE": round(mae, 4),
+        "RMSE": round(rmse, 4),
+        "MAPE_pct": round(mape, 4),
+        "RAE": round(rae, 4) if rae is not None else None,
+        "WAPE_pct": round(wape, 4) if wape is not None else None,
+        "n": int(len(valid)),
+    }
 
 
 def seasonal_naive_forecast(history: pd.DataFrame, forecast_start: pd.Timestamp, horizon_hours: int) -> pd.DataFrame:
