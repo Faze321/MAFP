@@ -99,6 +99,7 @@ def write_forecast_outputs(
             {
                 "zone_id": zone_id,
                 "category": result.summary.get("category"),
+                "forecast_model": result.summary.get("forecast_model"),
                 "forecast_start": result.summary.get("forecast_start"),
                 "forecast_end": result.summary.get("forecast_end"),
                 "n": metrics.get("n"),

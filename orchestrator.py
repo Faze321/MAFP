@@ -28,6 +28,10 @@ def run_pipeline(
     horizon_days: int = 4,
     history_days: int = 7,
     zone_ids: str | Iterable[str] | None = None,
+    forecast_model: str = "timefm",
+    timefm_repo: str = "google/timesfm-2.5-200m-pytorch",
+    timefm_context_hours: int = 168,
+    timefm_step_horizon: int = 24,
     temperature: float = 0.2,
 ) -> dict[str, Path]:
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -51,6 +55,10 @@ def run_pipeline(
         forecast_start=forecast_start,
         horizon_days=horizon_days,
         history_days=history_days,
+        forecast_model=forecast_model,
+        timefm_repo=timefm_repo,
+        timefm_context_hours=timefm_context_hours,
+        timefm_step_horizon=timefm_step_horizon,
     )
 
     if dry_run:
@@ -79,6 +87,10 @@ def build_contexts(
     forecast_start: str | None,
     horizon_days: int,
     history_days: int,
+    forecast_model: str,
+    timefm_repo: str,
+    timefm_context_hours: int,
+    timefm_step_horizon: int,
 ) -> tuple[list[dict[str, Any]], dict[str, ForecastResult]]:
     start = pd.Timestamp(forecast_start) if forecast_start else None
     contexts = []
@@ -98,6 +110,10 @@ def build_contexts(
             forecast_start=start,
             horizon_days=horizon_days,
             history_days=history_days,
+            forecast_model=forecast_model,
+            timefm_repo=timefm_repo,
+            timefm_context_hours=timefm_context_hours,
+            timefm_step_horizon=timefm_step_horizon,
         )
         forecast_results[zone_id] = result
         context = {

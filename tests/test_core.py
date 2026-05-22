@@ -29,6 +29,8 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(config.run.horizon_days, 1)
         self.assertEqual(config.run.history_days, 7)
         self.assertEqual(config.run.zone_ids, ["102"])
+        self.assertEqual(config.run.forecast_model, "timefm")
+        self.assertEqual(config.run.timefm_repo, "google/timesfm-2.5-200m-pytorch")
 
 
 class ForecastingTests(unittest.TestCase):

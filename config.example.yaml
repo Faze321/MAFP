@@ -15,4 +15,8 @@ run:
   history_days: 7
   zones:
     - "102"
+  forecast_model: "timefm"
+  timefm_repo: "google/timesfm-2.5-200m-pytorch"
+  timefm_context_hours: 168
+  timefm_step_horizon: 24
   temperature: 0.2

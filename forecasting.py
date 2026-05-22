@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import timedelta
 from typing import Any
 
 import numpy as np
 import pandas as pd
+
+
+_TIMEFM_MODEL_CACHE: dict[tuple[str, int, int], Any] = {}
 
 
 @dataclass(frozen=True)
@@ -26,6 +28,10 @@ def forecast_zone(
     forecast_start: pd.Timestamp | None,
     horizon_days: int,
     history_days: int,
+    forecast_model: str = "timefm",
+    timefm_repo: str = "google/timesfm-2.5-200m-pytorch",
+    timefm_context_hours: int = 168,
+    timefm_step_horizon: int = 24,
 ) -> ForecastResult:
     zone_id = str(zone_id)
     horizon_hours = horizon_days * 24
@@ -42,7 +48,15 @@ def forecast_zone(
     if len(history) < 24:
         raise ValueError(f"Not enough history for zone {zone_id}: found {len(history)} hours")
 
-    hourly = seasonal_naive_forecast(history, forecast_start, horizon_hours)
+    hourly = forecast_load(
+        history,
+        forecast_start,
+        horizon_hours,
+        model_name=forecast_model,
+        timefm_repo=timefm_repo,
+        timefm_context_hours=timefm_context_hours,
+        timefm_step_horizon=timefm_step_horizon,
+    )
     hourly = hourly.merge(actual, on="time", how="left")
     hourly = add_error_columns(hourly)
     metrics = compute_forecast_metrics(hourly)
@@ -69,6 +83,7 @@ def forecast_zone(
         "history_end": history_end.isoformat(),
         "forecast_start": forecast_start.isoformat(),
         "forecast_end": forecast_end.isoformat(),
+        "forecast_model": forecast_model,
         "forecast_total_kwh": round(forecast_total, 2),
         "forecast_peak_kwh": round(forecast_peak, 2),
         "predicted_change_pct": round(predicted_change_pct, 2),
@@ -92,6 +107,105 @@ def forecast_zone(
         "metrics": metrics,
     }
     return ForecastResult(hourly=hourly, summary=summary)
+
+
+def forecast_load(
+    history: pd.DataFrame,
+    forecast_start: pd.Timestamp,
+    horizon_hours: int,
+    *,
+    model_name: str,
+    timefm_repo: str,
+    timefm_context_hours: int,
+    timefm_step_horizon: int,
+) -> pd.DataFrame:
+    normalized = model_name.strip().lower().replace("-", "_")
+    if normalized in {"seasonal", "seasonal_naive", "naive"}:
+        return seasonal_naive_forecast(history, forecast_start, horizon_hours)
+    if normalized == "timefm":
+        return timefm_forecast(
+            history,
+            forecast_start,
+            horizon_hours,
+            repo=timefm_repo,
+            context_hours=timefm_context_hours,
+            step_horizon=timefm_step_horizon,
+        )
+    raise ValueError(f"Unsupported forecast_model: {model_name}")
+
+
+def timefm_forecast(
+    history: pd.DataFrame,
+    forecast_start: pd.Timestamp,
+    horizon_hours: int,
+    *,
+    repo: str,
+    context_hours: int,
+    step_horizon: int,
+) -> pd.DataFrame:
+    hist = history.set_index("time")["actual_kwh"].astype(float).sort_index()
+    context = hist.to_numpy(dtype=np.float64)
+    if len(context) == 0:
+        raise ValueError("TimeFM requires at least one historical value")
+
+    step = max(1, int(step_horizon))
+    compile_horizon = max(step, 32)
+    model = load_timefm_model(repo, context_hours, compile_horizon)
+
+    predictions: list[float] = []
+    remaining = horizon_hours
+    while remaining > 0:
+        chunk_horizon = min(step, remaining)
+        ctx = context[-context_hours:].astype(np.float64)
+        point_forecast = run_timefm_forecast(model, ctx, chunk_horizon)
+        predictions.extend(point_forecast[:chunk_horizon].tolist())
+        context = np.concatenate([context, point_forecast[:chunk_horizon]])
+        remaining -= chunk_horizon
+
+    target_index = pd.date_range(forecast_start, periods=horizon_hours, freq="h")
+    predicted = np.maximum(np.asarray(predictions, dtype=float), 0.0)
+    return pd.DataFrame({"time": target_index, "predicted_kwh": predicted})
+
+
+def load_timefm_model(repo: str, context_hours: int, max_horizon: int):
+    key = (repo, int(context_hours), int(max_horizon))
+    if key in _TIMEFM_MODEL_CACHE:
+        return _TIMEFM_MODEL_CACHE[key]
+
+    try:
+        from timesfm import ForecastConfig, TimesFM_2p5_200M_torch
+    except ModuleNotFoundError as exc:
+        raise RuntimeError(
+            "timesfm is required for forecast_model: timefm. "
+            "Install it and make sure this Python environment can import it."
+        ) from exc
+
+    model = TimesFM_2p5_200M_torch.from_pretrained(repo)
+    model.compile(
+        ForecastConfig(
+            max_context=int(context_hours),
+            max_horizon=int(max_horizon),
+            normalize_inputs=True,
+            fix_quantile_crossing=True,
+            return_backcast=True,
+        )
+    )
+    _TIMEFM_MODEL_CACHE[key] = model
+    return model
+
+
+def run_timefm_forecast(model, context: np.ndarray, horizon: int) -> np.ndarray:
+    result = model.forecast(horizon=int(horizon), inputs=[context])
+    if isinstance(result, tuple):
+        point_out = result[0]
+    else:
+        arr = np.asarray(result)
+        point_out = arr[:, :, 5] if arr.ndim == 3 and arr.shape[-1] > 5 else arr
+
+    point = np.asarray(point_out, dtype=np.float64)
+    if point.ndim == 1:
+        return point[:horizon]
+    return point[0, :horizon]
 
 
 def add_error_columns(hourly: pd.DataFrame) -> pd.DataFrame:

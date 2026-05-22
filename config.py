@@ -16,6 +16,10 @@ class RunConfig:
     horizon_days: int = 4
     history_days: int = 7
     zone_ids: list[str] | None = None
+    forecast_model: str = "timefm"
+    timefm_repo: str = "google/timesfm-2.5-200m-pytorch"
+    timefm_context_hours: int = 168
+    timefm_step_horizon: int = 24
     temperature: float = 0.2
 
     @classmethod
@@ -32,6 +36,10 @@ class RunConfig:
             horizon_days=optional_int(settings.get("horizon_days")) or 4,
             history_days=optional_int(settings.get("history_days")) or 7,
             zone_ids=normalize_zone_id_list(zone_ids),
+            forecast_model=optional_str(settings.get("forecast_model")) or "timefm",
+            timefm_repo=optional_str(settings.get("timefm_repo")) or "google/timesfm-2.5-200m-pytorch",
+            timefm_context_hours=optional_int(settings.get("timefm_context_hours")) or 168,
+            timefm_step_horizon=optional_int(settings.get("timefm_step_horizon")) or 24,
             temperature=optional_float(settings.get("temperature")) or 0.2,
         )
 

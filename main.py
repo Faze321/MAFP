@@ -62,6 +62,10 @@ def main(argv: list[str] | None = None) -> int:
         horizon_days=args.horizon_days if args.horizon_days is not None else run_config.horizon_days,
         history_days=args.history_days if args.history_days is not None else run_config.history_days,
         zone_ids=args.zones if args.zones is not None else run_config.zone_ids,
+        forecast_model=run_config.forecast_model,
+        timefm_repo=run_config.timefm_repo,
+        timefm_context_hours=run_config.timefm_context_hours,
+        timefm_step_horizon=run_config.timefm_step_horizon,
         temperature=args.temperature if args.temperature is not None else run_config.temperature,
     )
     print("Generated outputs:")

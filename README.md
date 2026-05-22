@@ -51,6 +51,8 @@ python main.py --force-cache
 
 Runtime defaults can be stored under `run:` in `config.yaml`, so common settings do not need to be typed each time. Command-line options override YAML values only for that run. When `run.zones` / `--zones` is omitted, the pipeline keeps the original five-category automatic zone selection. When zones are provided, the pipeline skips category selection and validates only the specified zone ids.
 
+Set `run.forecast_model: "timefm"` to use `google/timesfm-2.5-200m-pytorch` for load forecasting. Set `run.forecast_model: "seasonal_naive"` for a fast baseline run without TimeFM.
+
 ## Outputs
 
 Generated files are written to `output/`:

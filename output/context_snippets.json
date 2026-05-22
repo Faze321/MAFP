@@ -6,18 +6,19 @@
     "history_end": "2023-02-27T23:00:00",
     "forecast_start": "2023-02-28T00:00:00",
     "forecast_end": "2023-02-28T23:00:00",
-    "forecast_total_kwh": 1406.64,
-    "forecast_peak_kwh": 99.56,
-    "predicted_change_pct": 2.9,
+    "forecast_model": "timefm",
+    "forecast_total_kwh": 1316.47,
+    "forecast_peak_kwh": 58.76,
+    "predicted_change_pct": -3.7,
     "actual_total_kwh": 1096.67,
     "actual_peak_kwh": 63.0,
-    "mae_kwh": 14.3856,
-    "rmse_kwh": 18.7301,
-    "mape_pct": 39.0963,
-    "rae": 1.1885,
-    "wape_pct": 31.4821,
+    "mae_kwh": 12.5149,
+    "rmse_kwh": 15.8476,
+    "mape_pct": 36.2118,
+    "rae": 1.0339,
+    "wape_pct": 27.3882,
     "capacity_kw_proxy": 330.0,
-    "peak_capacity_ratio": 0.302,
+    "peak_capacity_ratio": 0.178,
     "grid_stress_level": "Low",
     "price": {
       "mean_service_price": 0.7631,
@@ -86,7 +87,7 @@
     "daily_forecast_kwh": [
       {
         "date": "2023-02-28",
-        "kwh": 1406.64
+        "kwh": 1316.47
       }
     ],
     "hourly_shape": {
@@ -96,11 +97,11 @@
       "night_20_6": 56.76
     },
     "metrics": {
-      "MAE": 14.3856,
-      "RMSE": 18.7301,
-      "MAPE_pct": 39.0963,
-      "RAE": 1.1885,
-      "WAPE_pct": 31.4821,
+      "MAE": 12.5149,
+      "RMSE": 15.8476,
+      "MAPE_pct": 36.2118,
+      "RAE": 1.0339,
+      "WAPE_pct": 27.3882,
       "n": 24
     },
     "selection_reason": "User-specified zone for direct validation.",
@@ -117,18 +118,19 @@
     "history_end": "2023-02-27T23:00:00",
     "forecast_start": "2023-02-28T00:00:00",
     "forecast_end": "2023-02-28T23:00:00",
-    "forecast_total_kwh": 170.38,
-    "forecast_peak_kwh": 10.17,
-    "predicted_change_pct": -17.95,
+    "forecast_model": "timefm",
+    "forecast_total_kwh": 203.78,
+    "forecast_peak_kwh": 8.89,
+    "predicted_change_pct": -1.87,
     "actual_total_kwh": 136.5,
     "actual_peak_kwh": 10.5,
-    "mae_kwh": 2.1765,
-    "rmse_kwh": 2.9979,
-    "mape_pct": 55.6838,
-    "rae": 0.7462,
-    "wape_pct": 38.2674,
+    "mae_kwh": 3.8776,
+    "rmse_kwh": 4.1828,
+    "mape_pct": 100.0933,
+    "rae": 1.3295,
+    "wape_pct": 68.1772,
     "capacity_kw_proxy": 209.0,
-    "peak_capacity_ratio": 0.049,
+    "peak_capacity_ratio": 0.043,
     "grid_stress_level": "Low",
     "price": {
       "mean_service_price": 0.76,
@@ -197,7 +199,7 @@
     "daily_forecast_kwh": [
       {
         "date": "2023-02-28",
-        "kwh": 170.38
+        "kwh": 203.78
       }
     ],
     "hourly_shape": {
@@ -207,11 +209,11 @@
       "night_20_6": 10.98
     },
     "metrics": {
-      "MAE": 2.1765,
-      "RMSE": 2.9979,
-      "MAPE_pct": 55.6838,
-      "RAE": 0.7462,
-      "WAPE_pct": 38.2674,
+      "MAE": 3.8776,
+      "RMSE": 4.1828,
+      "MAPE_pct": 100.0933,
+      "RAE": 1.3295,
+      "WAPE_pct": 68.1772,
       "n": 24
     },
     "selection_reason": "User-specified zone for direct validation.",
