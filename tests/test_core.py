@@ -1,18 +1,22 @@
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import numpy as np
 import pandas as pd
+import torch
 
 from agents import extract_json_object
-from config import AgentConfig, AppConfig
+from config import AgentConfig, AppConfig, RunConfig
 from forecasting import (
     build_zone_model_frame,
+    chronos_forecast,
     compute_forecast_metrics,
+    patch_timefm_hub_kwargs,
     rebuild_quantile_interval,
     seasonal_naive_forecast,
 )
-from orchestrator import normalize_zone_ids, select_requested_zones
+from orchestrator import forecast_output_dir, normalize_zone_ids, select_requested_zones
 from zone_selection import select_zone_categories
 
 
@@ -38,12 +42,53 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(config.run.history_days, 7)
         self.assertEqual(config.run.validation_days, 1)
         self.assertEqual(config.run.zone_ids, ["102"])
-        self.assertEqual(config.run.forecast_model, "timefm")
+        self.assertEqual(config.run.forecast_model, "timesfm")
         self.assertEqual(config.run.timefm_repo, "google/timesfm-2.5-200m-pytorch")
         self.assertEqual(config.run.timefm_exog_cols[:4], ["T", "U", "nRAIN", "e_price"])
+        self.assertEqual(config.run.chronos_repo, "amazon/chronos-2")
+        self.assertEqual(config.run.chronos_context_hours, 512)
+
+    def test_accepts_legacy_timefm_config_aliases(self):
+        config = RunConfig.from_mapping(
+            {
+                "forecast_model": "timefm",
+                "timefm_repo": "google/timesfm-2.5-200m-pytorch",
+                "timefm_context_hours": 48,
+                "timefm_exog_cols": ["T", "U"],
+            }
+        )
+        self.assertEqual(config.forecast_model, "timesfm")
+        self.assertEqual(config.timefm_context_hours, 48)
+        self.assertEqual(config.timefm_exog_cols, ["T", "U"])
 
 
 class ForecastingTests(unittest.TestCase):
+    def test_timesfm_loader_strips_huggingface_hub_kwargs(self):
+        class FakeTimeFM:
+            seen_kwargs = None
+
+            @classmethod
+            def _from_pretrained(cls, **kwargs):
+                cls.seen_kwargs = kwargs
+                return cls()
+
+        patch_timefm_hub_kwargs(FakeTimeFM)
+        FakeTimeFM._from_pretrained(
+            model_id="fake/repo",
+            revision=None,
+            cache_dir=None,
+            force_download=False,
+            proxies={"http": "http://proxy"},
+            resume_download=None,
+            local_files_only=False,
+            token=None,
+            config={"model": "fake"},
+        )
+
+        self.assertNotIn("proxies", FakeTimeFM.seen_kwargs)
+        self.assertNotIn("resume_download", FakeTimeFM.seen_kwargs)
+        self.assertEqual(FakeTimeFM.seen_kwargs["config"], {"model": "fake"})
+
     def test_seasonal_forecast_keeps_hourly_horizon(self):
         history = pd.DataFrame(
             {
@@ -97,8 +142,112 @@ class ForecastingTests(unittest.TestCase):
         self.assertTrue(np.all(q10[:2] <= point[:2]))
         self.assertTrue(np.all(q90[:2] >= point[:2]))
 
+    def test_chronos_forecast_uses_quantile_output(self):
+        test_case = self
+
+        class FakeChronos:
+            def predict(self, inputs, prediction_length=None, num_samples=None, limit_prediction_length=False):
+                return None
+
+            def predict_quantiles(self, inputs, prediction_length, quantile_levels, **kwargs):
+                test_case.assertEqual(kwargs.get("num_samples"), 2)
+                center = torch.arange(1, prediction_length + 1, dtype=torch.float32)
+                quantiles = torch.stack([center - 0.5, center, center + 0.5], dim=-1).unsqueeze(0)
+                return quantiles, center.unsqueeze(0)
+
+        history = pd.DataFrame(
+            {
+                "time": pd.date_range("2023-01-01", periods=24, freq="h"),
+                "actual_kwh": [float(hour + 1) for hour in range(24)],
+            }
+        )
+        full_frame = pd.DataFrame(
+            {
+                "time": pd.date_range("2023-01-02", periods=3, freq="h"),
+                "actual_kwh": [1.0, 2.0, 3.0],
+            }
+        )
+        with patch("forecasting.load_chronos_model", return_value=FakeChronos()):
+            result = chronos_forecast(
+                history,
+                pd.DataFrame(),
+                full_frame,
+                pd.Timestamp("2023-01-02"),
+                3,
+                repo="fake",
+                context_hours=24,
+                step_horizon=3,
+                num_samples=2,
+                device="cpu",
+                roll_actuals=False,
+            )
+        self.assertEqual(result["predicted_kwh"].tolist(), [1.0, 2.0, 3.0])
+        self.assertTrue((result["q10_kwh"] <= result["predicted_kwh"]).all())
+        self.assertTrue((result["q90_kwh"] >= result["predicted_kwh"]).all())
+
+    def test_chronos_forecast_accepts_chronos2_list_output(self):
+        test_case = self
+
+        class FakeChronos2:
+            def predict(
+                self,
+                inputs,
+                prediction_length=None,
+                batch_size=256,
+                context_length=None,
+                cross_learning=False,
+                limit_prediction_length=False,
+                **kwargs,
+            ):
+                return None
+
+            def predict_quantiles(self, inputs, prediction_length, quantile_levels, **kwargs):
+                test_case.assertNotIn("num_samples", kwargs)
+                center = torch.arange(1, prediction_length + 1, dtype=torch.float32)
+                quantiles = torch.stack([center - 0.5, center, center + 0.5], dim=-1).unsqueeze(0)
+                return [quantiles], [center.unsqueeze(0)]
+
+        history = pd.DataFrame(
+            {
+                "time": pd.date_range("2023-01-01", periods=24, freq="h"),
+                "actual_kwh": [float(hour + 1) for hour in range(24)],
+            }
+        )
+        full_frame = pd.DataFrame(
+            {
+                "time": pd.date_range("2023-01-02", periods=2, freq="h"),
+                "actual_kwh": [1.0, 2.0],
+            }
+        )
+        with patch("forecasting.load_chronos_model", return_value=FakeChronos2()):
+            result = chronos_forecast(
+                history,
+                pd.DataFrame(),
+                full_frame,
+                pd.Timestamp("2023-01-02"),
+                2,
+                repo="fake",
+                context_hours=24,
+                step_horizon=2,
+                num_samples=2,
+                device="cpu",
+                roll_actuals=False,
+            )
+        self.assertEqual(result["predicted_kwh"].tolist(), [1.0, 2.0])
+        self.assertEqual(result["q10_kwh"].tolist(), [0.5, 1.5])
+        self.assertEqual(result["q90_kwh"].tolist(), [1.5, 2.5])
+
 
 class SelectionTests(unittest.TestCase):
+    def test_forecast_output_dir_uses_model_subfolder(self):
+        self.assertEqual(forecast_output_dir(Path("output"), "chronos"), Path("output") / "chronos")
+        self.assertEqual(forecast_output_dir(Path("output"), "timesfm"), Path("output") / "timesfm")
+        self.assertEqual(forecast_output_dir(Path("output"), "timefm"), Path("output") / "timesfm")
+        self.assertEqual(
+            forecast_output_dir(Path("output"), "seasonal-naive"),
+            Path("output") / "seasonal_naive",
+        )
+
     def test_normalizes_requested_zone_ids(self):
         zone_ids = normalize_zone_ids(["102,104", " 108 ", "104"])
         self.assertEqual(zone_ids, ["102", "104", "108"])

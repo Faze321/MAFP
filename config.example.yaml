@@ -17,17 +17,23 @@ run:
   validation_days: 1
   zones:
     - "102"
-  forecast_model: "timefm"
-  timefm_repo: "google/timesfm-2.5-200m-pytorch"
-  timefm_context_hours: 168
-  timefm_step_horizon: 24
-  timefm_exog_cols:
+  forecast_model: "timesfm"
+  timesfm_repo: "google/timesfm-2.5-200m-pytorch"
+  timesfm_context_hours: 168
+  timesfm_step_horizon: 24
+  timesfm_exog_cols:
     - "T"
     - "U"
     - "nRAIN"
     - "e_price"
     - "is_weekend"
     - "temp_price_idx"
-  timefm_diurnal_blend_alpha: 1.0
-  timefm_roll_actuals: true
+  timesfm_diurnal_blend_alpha: 1.0
+  timesfm_roll_actuals: true
+  chronos_repo: "amazon/chronos-2"
+  chronos_context_hours: 512
+  chronos_step_horizon: 24
+  chronos_num_samples: 20
+  chronos_device: "auto"
+  chronos_roll_actuals: true
   temperature: 0.2

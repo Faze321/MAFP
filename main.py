@@ -16,6 +16,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--data-dir", default=None, help="Directory containing UrbanEV CSV files.")
     parser.add_argument("--output-dir", default=None, help="Directory for generated reports.")
     parser.add_argument("--weather-file", default=None, help="Weather CSV file under data-dir.")
+    parser.add_argument("--forecast-model", default=None, help="Forecast model: timesfm, chronos, or seasonal_naive.")
     parser.add_argument("--model", default=None, help="Model id, for example openai/gpt-4o-mini.")
     parser.add_argument(
         "--dry-run",
@@ -65,13 +66,19 @@ def main(argv: list[str] | None = None) -> int:
         history_days=args.history_days if args.history_days is not None else run_config.history_days,
         validation_days=run_config.validation_days,
         zone_ids=args.zones if args.zones is not None else run_config.zone_ids,
-        forecast_model=run_config.forecast_model,
+        forecast_model=args.forecast_model or run_config.forecast_model,
         timefm_repo=run_config.timefm_repo,
         timefm_context_hours=run_config.timefm_context_hours,
         timefm_step_horizon=run_config.timefm_step_horizon,
         timefm_exog_cols=run_config.timefm_exog_cols,
         timefm_diurnal_blend_alpha=run_config.timefm_diurnal_blend_alpha,
         timefm_roll_actuals=run_config.timefm_roll_actuals,
+        chronos_repo=run_config.chronos_repo,
+        chronos_context_hours=run_config.chronos_context_hours,
+        chronos_step_horizon=run_config.chronos_step_horizon,
+        chronos_num_samples=run_config.chronos_num_samples,
+        chronos_device=run_config.chronos_device,
+        chronos_roll_actuals=run_config.chronos_roll_actuals,
         temperature=args.temperature if args.temperature is not None else run_config.temperature,
     )
     print("Generated outputs:")

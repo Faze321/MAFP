@@ -18,13 +18,19 @@ class RunConfig:
     history_days: int = 7
     validation_days: int = 1
     zone_ids: list[str] | None = None
-    forecast_model: str = "timefm"
+    forecast_model: str = "timesfm"
     timefm_repo: str = "google/timesfm-2.5-200m-pytorch"
     timefm_context_hours: int = 168
     timefm_step_horizon: int = 24
     timefm_exog_cols: list[str] | None = None
     timefm_diurnal_blend_alpha: float = 1.0
     timefm_roll_actuals: bool = True
+    chronos_repo: str = "amazon/chronos-2"
+    chronos_context_hours: int = 512
+    chronos_step_horizon: int = 24
+    chronos_num_samples: int = 20
+    chronos_device: str = "auto"
+    chronos_roll_actuals: bool = True
     temperature: float = 0.2
 
     @classmethod
@@ -34,9 +40,14 @@ class RunConfig:
         horizon_days = optional_int(settings.get("horizon_days"))
         history_days = optional_int(settings.get("history_days"))
         validation_days = optional_int(settings.get("validation_days"))
-        timefm_context_hours = optional_int(settings.get("timefm_context_hours"))
-        timefm_step_horizon = optional_int(settings.get("timefm_step_horizon"))
-        timefm_diurnal_blend_alpha = optional_float(settings.get("timefm_diurnal_blend_alpha"))
+        timefm_context_hours = optional_int(first_setting(settings, "timesfm_context_hours", "timefm_context_hours"))
+        timefm_step_horizon = optional_int(first_setting(settings, "timesfm_step_horizon", "timefm_step_horizon"))
+        timefm_diurnal_blend_alpha = optional_float(
+            first_setting(settings, "timesfm_diurnal_blend_alpha", "timefm_diurnal_blend_alpha")
+        )
+        chronos_context_hours = optional_int(settings.get("chronos_context_hours"))
+        chronos_step_horizon = optional_int(settings.get("chronos_step_horizon"))
+        chronos_num_samples = optional_int(settings.get("chronos_num_samples"))
         temperature = optional_float(settings.get("temperature"))
         return cls(
             data_dir=optional_str(settings.get("data_dir")) or "data",
@@ -50,15 +61,22 @@ class RunConfig:
             history_days=history_days if history_days is not None else 7,
             validation_days=validation_days if validation_days is not None else 1,
             zone_ids=normalize_zone_id_list(zone_ids),
-            forecast_model=optional_str(settings.get("forecast_model")) or "timefm",
-            timefm_repo=optional_str(settings.get("timefm_repo")) or "google/timesfm-2.5-200m-pytorch",
+            forecast_model=normalize_forecast_model_name(optional_str(settings.get("forecast_model"))),
+            timefm_repo=optional_str(first_setting(settings, "timesfm_repo", "timefm_repo"))
+            or "google/timesfm-2.5-200m-pytorch",
             timefm_context_hours=timefm_context_hours if timefm_context_hours is not None else 168,
             timefm_step_horizon=timefm_step_horizon if timefm_step_horizon is not None else 24,
-            timefm_exog_cols=normalize_zone_id_list(settings.get("timefm_exog_cols")),
+            timefm_exog_cols=normalize_zone_id_list(first_setting(settings, "timesfm_exog_cols", "timefm_exog_cols")),
             timefm_diurnal_blend_alpha=(
                 timefm_diurnal_blend_alpha if timefm_diurnal_blend_alpha is not None else 1.0
             ),
-            timefm_roll_actuals=optional_bool(settings.get("timefm_roll_actuals"), True),
+            timefm_roll_actuals=optional_bool(first_setting(settings, "timesfm_roll_actuals", "timefm_roll_actuals"), True),
+            chronos_repo=optional_str(settings.get("chronos_repo")) or "amazon/chronos-2",
+            chronos_context_hours=chronos_context_hours if chronos_context_hours is not None else 512,
+            chronos_step_horizon=chronos_step_horizon if chronos_step_horizon is not None else 24,
+            chronos_num_samples=chronos_num_samples if chronos_num_samples is not None else 20,
+            chronos_device=optional_str(settings.get("chronos_device")) or "auto",
+            chronos_roll_actuals=optional_bool(settings.get("chronos_roll_actuals"), True),
             temperature=temperature if temperature is not None else 0.2,
         )
 
@@ -265,6 +283,20 @@ def optional_str(value: Any) -> str | None:
         return None
     text = str(value).strip()
     return text or None
+
+
+def first_setting(settings: dict[str, Any], *keys: str) -> Any:
+    for key in keys:
+        if key in settings:
+            return settings[key]
+    return None
+
+
+def normalize_forecast_model_name(value: str | None) -> str:
+    normalized = (value or "timesfm").strip().lower().replace("-", "_")
+    if normalized == "timefm":
+        return "timesfm"
+    return normalized
 
 
 def optional_int(value: Any) -> int | None:

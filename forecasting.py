@@ -1,13 +1,17 @@
 from __future__ import annotations
 
+import inspect
 from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
 import pandas as pd
 
+from config import normalize_forecast_model_name
+
 
 _TIMEFM_MODEL_CACHE: dict[tuple[str, int, int], Any] = {}
+_CHRONOS_MODEL_CACHE: dict[tuple[str, str], Any] = {}
 DEFAULT_TIMEFM_EXOG_COLS = ["T", "U", "nRAIN", "e_price", "is_weekend", "temp_price_idx"]
 
 
@@ -31,15 +35,22 @@ def forecast_zone(
     horizon_days: int,
     history_days: int,
     validation_days: int = 1,
-    forecast_model: str = "timefm",
+    forecast_model: str = "timesfm",
     timefm_repo: str = "google/timesfm-2.5-200m-pytorch",
     timefm_context_hours: int = 168,
     timefm_step_horizon: int = 24,
     timefm_exog_cols: list[str] | None = None,
     timefm_diurnal_blend_alpha: float = 1.0,
     timefm_roll_actuals: bool = True,
+    chronos_repo: str = "amazon/chronos-2",
+    chronos_context_hours: int = 512,
+    chronos_step_horizon: int = 24,
+    chronos_num_samples: int = 20,
+    chronos_device: str = "auto",
+    chronos_roll_actuals: bool = True,
 ) -> ForecastResult:
     zone_id = str(zone_id)
+    normalized_model = normalize_forecast_model_name(forecast_model)
     horizon_hours = horizon_days * 24
     if forecast_start is None:
         forecast_start = load["time"].max() - pd.Timedelta(hours=horizon_hours - 1)
@@ -71,6 +82,12 @@ def forecast_zone(
         timefm_exog_cols=timefm_exog_cols or DEFAULT_TIMEFM_EXOG_COLS,
         timefm_diurnal_blend_alpha=timefm_diurnal_blend_alpha,
         timefm_roll_actuals=timefm_roll_actuals,
+        chronos_repo=chronos_repo,
+        chronos_context_hours=chronos_context_hours,
+        chronos_step_horizon=chronos_step_horizon,
+        chronos_num_samples=chronos_num_samples,
+        chronos_device=chronos_device,
+        chronos_roll_actuals=chronos_roll_actuals,
     )
     forecast_attrs = dict(hourly.attrs)
     hourly = hourly.merge(actual, on="time", how="left")
@@ -101,10 +118,18 @@ def forecast_zone(
         "validation_end": validation_end.isoformat() if validation_hours else None,
         "forecast_start": forecast_start.isoformat(),
         "forecast_end": forecast_end.isoformat(),
-        "forecast_model": forecast_model,
-        "timefm_covariates": timefm_exog_cols or DEFAULT_TIMEFM_EXOG_COLS,
-        "timefm_diurnal_blend_alpha": round(float(timefm_diurnal_blend_alpha), 4),
-        "timefm_roll_actuals": bool(timefm_roll_actuals),
+        "forecast_model": normalized_model,
+        "timesfm_covariates": (timefm_exog_cols or DEFAULT_TIMEFM_EXOG_COLS) if normalized_model == "timesfm" else None,
+        "timesfm_diurnal_blend_alpha": round(float(timefm_diurnal_blend_alpha), 4)
+        if normalized_model == "timesfm"
+        else None,
+        "timesfm_roll_actuals": bool(timefm_roll_actuals) if normalized_model == "timesfm" else None,
+        "chronos_repo": chronos_repo if normalized_model.startswith("chronos") else None,
+        "chronos_context_hours": int(chronos_context_hours) if normalized_model.startswith("chronos") else None,
+        "chronos_step_horizon": int(chronos_step_horizon) if normalized_model.startswith("chronos") else None,
+        "chronos_num_samples": int(chronos_num_samples) if normalized_model == "chronos" else None,
+        "chronos_device": chronos_device if normalized_model.startswith("chronos") else None,
+        "chronos_roll_actuals": bool(chronos_roll_actuals) if normalized_model.startswith("chronos") else None,
         "calibration": forecast_attrs.get("calibration"),
         "forecast_total_kwh": round(forecast_total, 2),
         "forecast_peak_kwh": round(forecast_peak, 2),
@@ -145,11 +170,17 @@ def forecast_load(
     timefm_exog_cols: list[str],
     timefm_diurnal_blend_alpha: float,
     timefm_roll_actuals: bool,
+    chronos_repo: str,
+    chronos_context_hours: int,
+    chronos_step_horizon: int,
+    chronos_num_samples: int,
+    chronos_device: str,
+    chronos_roll_actuals: bool,
 ) -> pd.DataFrame:
-    normalized = model_name.strip().lower().replace("-", "_")
+    normalized = normalize_forecast_model_name(model_name)
     if normalized in {"seasonal", "seasonal_naive", "naive"}:
         return seasonal_naive_forecast(history, forecast_start, horizon_hours)
-    if normalized == "timefm":
+    if normalized == "timesfm":
         return timefm_forecast(
             history,
             validation,
@@ -162,6 +193,20 @@ def forecast_load(
             exog_cols=timefm_exog_cols,
             diurnal_blend_alpha=timefm_diurnal_blend_alpha,
             roll_actuals=timefm_roll_actuals,
+        )
+    if normalized in {"chronos"}:
+        return chronos_forecast(
+            history,
+            validation,
+            full_frame,
+            forecast_start,
+            horizon_hours,
+            repo=chronos_repo,
+            context_hours=chronos_context_hours,
+            step_horizon=chronos_step_horizon,
+            num_samples=chronos_num_samples,
+            device=chronos_device,
+            roll_actuals=chronos_roll_actuals,
         )
     raise ValueError(f"Unsupported forecast_model: {model_name}")
 
@@ -182,7 +227,7 @@ def timefm_forecast(
 ) -> pd.DataFrame:
     context_load = history["actual_kwh"].astype(float).to_numpy(dtype=np.float64)
     if len(context_load) == 0:
-        raise ValueError("TimeFM requires at least one historical value")
+        raise ValueError("TimesFM requires at least one historical value")
 
     step = max(1, int(step_horizon))
     compile_horizon = max(step, 32)
@@ -292,6 +337,106 @@ def timefm_forecast(
     return result
 
 
+def chronos_forecast(
+    history: pd.DataFrame,
+    validation: pd.DataFrame,
+    full_frame: pd.DataFrame,
+    forecast_start: pd.Timestamp,
+    horizon_hours: int,
+    *,
+    repo: str,
+    context_hours: int,
+    step_horizon: int,
+    num_samples: int,
+    device: str,
+    roll_actuals: bool,
+) -> pd.DataFrame:
+    context_load = history["actual_kwh"].astype(float).to_numpy(dtype=np.float64)
+    if len(context_load) == 0:
+        raise ValueError("Chronos requires at least one historical value")
+
+    step = max(1, int(step_horizon))
+    pipeline = load_chronos_model(repo, device)
+    rolling_load = context_load.copy()
+
+    calibration: dict[str, Any] = {
+        "enabled": False,
+        "bias_mean": 0.0,
+        "bias_max_abs": 0.0,
+        "metrics": None,
+    }
+    bias_vec = np.zeros(step, dtype=np.float64)
+    if not validation.empty:
+        val_horizon = min(step, len(validation))
+        val_raw, _, _ = run_chronos_prediction(
+            pipeline,
+            rolling_load,
+            val_horizon,
+            context_hours,
+            num_samples,
+        )
+        val_actual = validation["actual_kwh"].astype(float).to_numpy(dtype=np.float64)[:val_horizon]
+        bias_vec = align_vector(val_raw[:val_horizon] - val_actual, step)
+        val_cmp = pd.DataFrame({"actual_kwh": val_actual, "predicted_kwh": val_raw[:val_horizon]})
+        calibration = {
+            "enabled": True,
+            "bias_mean": round(float(np.nanmean(bias_vec)), 4),
+            "bias_max_abs": round(float(np.nanmax(np.abs(bias_vec))), 4),
+            "metrics": compute_forecast_metrics(val_cmp),
+        }
+        rolling_load = np.concatenate([rolling_load, validation["actual_kwh"].astype(float).to_numpy(dtype=np.float64)])
+
+    rows: list[pd.DataFrame] = []
+    remaining = horizon_hours
+    offset = 0
+    while remaining > 0:
+        chunk_horizon = min(step, remaining)
+        chunk_start = forecast_start + pd.Timedelta(hours=offset)
+        chunk_times = pd.date_range(chunk_start, periods=chunk_horizon, freq="h")
+        raw, raw_q10, raw_q90 = run_chronos_prediction(
+            pipeline,
+            rolling_load,
+            chunk_horizon,
+            context_hours,
+            num_samples,
+        )
+        bias = align_vector(bias_vec, chunk_horizon)
+        point = np.clip(raw[:chunk_horizon] - bias, 0, None)
+        q10, q90 = rebuild_quantile_interval(point, raw_q10[:chunk_horizon], raw_q90[:chunk_horizon])
+        rows.append(
+            pd.DataFrame(
+                {
+                    "time": chunk_times,
+                    "raw_predicted_kwh": raw[:chunk_horizon],
+                    "bias_corrected_kwh": point,
+                    "predicted_kwh": point,
+                    "q10_kwh": q10,
+                    "q50_kwh": point,
+                    "q90_kwh": q90,
+                }
+            )
+        )
+
+        chunk_frame = (
+            full_frame.set_index("time")
+            .reindex(chunk_times)
+            .rename_axis("time")
+            .reset_index()
+        )
+        actual_chunk = chunk_frame.get("actual_kwh")
+        if roll_actuals and actual_chunk is not None and actual_chunk.notna().all():
+            roll_values = actual_chunk.astype(float).to_numpy(dtype=np.float64)
+        else:
+            roll_values = point
+        rolling_load = np.concatenate([rolling_load, roll_values])
+        remaining -= chunk_horizon
+        offset += chunk_horizon
+
+    result = pd.concat(rows, ignore_index=True) if rows else pd.DataFrame(columns=["time", "predicted_kwh"])
+    result.attrs["calibration"] = calibration
+    return result
+
+
 def load_timefm_model(repo: str, context_hours: int, max_horizon: int):
     key = (repo, int(context_hours), int(max_horizon))
     if key in _TIMEFM_MODEL_CACHE:
@@ -301,11 +446,12 @@ def load_timefm_model(repo: str, context_hours: int, max_horizon: int):
         from timesfm import ForecastConfig, TimesFM_2p5_200M_torch
     except ModuleNotFoundError as exc:
         raise RuntimeError(
-            "timesfm is required for forecast_model: timefm. "
+            "timesfm is required for forecast_model: timesfm. "
             "Install the official google-research/timesfm package and make sure "
             "this Python environment can import it."
         ) from exc
 
+    patch_timefm_hub_kwargs(TimesFM_2p5_200M_torch)
     model = TimesFM_2p5_200M_torch.from_pretrained(repo)
     model.compile(
         ForecastConfig(
@@ -318,6 +464,67 @@ def load_timefm_model(repo: str, context_hours: int, max_horizon: int):
     )
     _TIMEFM_MODEL_CACHE[key] = model
     return model
+
+
+def patch_timefm_hub_kwargs(model_cls) -> None:
+    if getattr(model_cls, "_mapf_hub_kwargs_compat", False):
+        return
+
+    original = model_cls._from_pretrained
+
+    @classmethod
+    def _from_pretrained_compat(cls, *args, **kwargs):
+        kwargs.pop("proxies", None)
+        kwargs.pop("resume_download", None)
+        return original(*args, **kwargs)
+
+    model_cls._from_pretrained = _from_pretrained_compat
+    model_cls._mapf_hub_kwargs_compat = True
+
+
+def load_chronos_model(repo: str, device: str):
+    resolved_device = resolve_torch_device(device)
+    key = (repo, resolved_device)
+    if key in _CHRONOS_MODEL_CACHE:
+        return _CHRONOS_MODEL_CACHE[key]
+
+    try:
+        import torch
+        from chronos import Chronos2Pipeline, ChronosBoltPipeline, ChronosPipeline
+    except ModuleNotFoundError as exc:
+        raise RuntimeError(
+            "chronos-forecasting is required for forecast_model: chronos. "
+            "Install it in this Python environment."
+        ) from exc
+
+    dtype = torch.bfloat16 if resolved_device.startswith("cuda") else torch.float32
+    repo_lower = repo.lower()
+    if "chronos-2" in repo_lower or "chronos2" in repo_lower:
+        pipeline_cls = Chronos2Pipeline
+    elif "bolt" in repo_lower:
+        pipeline_cls = ChronosBoltPipeline
+    else:
+        pipeline_cls = ChronosPipeline
+    pipeline = pipeline_cls.from_pretrained(
+        repo,
+        device_map=resolved_device,
+        dtype=dtype,
+    )
+    _CHRONOS_MODEL_CACHE[key] = pipeline
+    return pipeline
+
+
+def resolve_torch_device(device: str) -> str:
+    normalized = (device or "auto").strip().lower()
+    if normalized == "auto":
+        try:
+            import torch
+        except ModuleNotFoundError:
+            return "cpu"
+        return "cuda" if torch.cuda.is_available() else "cpu"
+    if normalized in {"gpu", "cuda"}:
+        return "cuda"
+    return normalized
 
 
 def run_timefm_prediction(
@@ -346,13 +553,63 @@ def run_timefm_prediction(
             )
         except ImportError as exc:
             raise RuntimeError(
-                "TimeFM covariate forecasting requires the xreg dependencies. "
+                "TimesFM covariate forecasting requires the xreg dependencies. "
                 "Install torch, jax, jaxlib, scikit-learn, and the official "
                 "google-research/timesfm package."
             ) from exc
     else:
         result = model.forecast(horizon=int(horizon), inputs=[ctx])
     return parse_timefm_result(result, horizon)
+
+
+def run_chronos_prediction(
+    pipeline,
+    context_load: np.ndarray,
+    horizon: int,
+    context_hours: int,
+    num_samples: int,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    try:
+        import torch
+    except ModuleNotFoundError as exc:
+        raise RuntimeError("torch is required for forecast_model: chronos.") from exc
+
+    ctx = context_load[-context_hours:].astype(np.float32)
+    inputs = [torch.tensor(ctx, dtype=torch.float32)]
+    predict_kwargs: dict[str, Any] = {"limit_prediction_length": False}
+    if chronos_supports_num_samples(pipeline):
+        predict_kwargs["num_samples"] = int(num_samples)
+    quantiles, _ = pipeline.predict_quantiles(
+        inputs,
+        prediction_length=int(horizon),
+        quantile_levels=[0.1, 0.5, 0.9],
+        **predict_kwargs,
+    )
+    if isinstance(quantiles, list):
+        if not quantiles:
+            raise RuntimeError("Chronos returned no quantile forecasts")
+        q = np.asarray(quantiles[0].detach().cpu(), dtype=np.float64)
+        if q.ndim == 3:
+            q = q[0]
+        q = q[np.newaxis, :, :]
+    else:
+        q = np.asarray(quantiles.detach().cpu(), dtype=np.float64)
+    if q.ndim != 3 or q.shape[0] == 0 or q.shape[-1] < 3:
+        raise RuntimeError(f"Unexpected Chronos quantile shape: {q.shape}")
+    q10 = q[0, :horizon, 0]
+    q50 = q[0, :horizon, 1]
+    q90 = q[0, :horizon, 2]
+    return np.clip(q50, 0, None), np.clip(q10, 0, None), np.clip(q90, 0, None)
+
+
+def chronos_supports_num_samples(pipeline) -> bool:
+    predict = getattr(pipeline, "predict", None)
+    if predict is None:
+        return pipeline.__class__.__name__ == "ChronosPipeline"
+    try:
+        return "num_samples" in inspect.signature(predict).parameters
+    except (TypeError, ValueError):
+        return pipeline.__class__.__name__ == "ChronosPipeline"
 
 
 def parse_timefm_result(result: Any, horizon: int) -> tuple[np.ndarray, np.ndarray, np.ndarray]:

@@ -7,4 +7,5 @@ torch>=2.0.0
 jax>=0.4.0
 jaxlib>=0.4.0
 scikit-learn>=1.3
+chronos-forecasting>=2.0
 timesfm @ git+https://github.com/google-research/timesfm.git

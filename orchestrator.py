@@ -8,10 +8,10 @@ from typing import Any
 import pandas as pd
 
 from agents import AgentChatClient, run_all_zone_chains
-from config import AgentConfig
+from config import AgentConfig, normalize_forecast_model_name
 from data_loader import build_zone_profiles, load_pipeline_data
 from forecasting import ForecastResult, forecast_zone
-from reporting import write_outputs
+from reporting import safe_filename, write_outputs
 from zone_selection import select_zone_categories
 
 
@@ -30,16 +30,24 @@ def run_pipeline(
     history_days: int = 7,
     validation_days: int = 1,
     zone_ids: str | Iterable[str] | None = None,
-    forecast_model: str = "timefm",
+    forecast_model: str = "timesfm",
     timefm_repo: str = "google/timesfm-2.5-200m-pytorch",
     timefm_context_hours: int = 168,
     timefm_step_horizon: int = 24,
     timefm_exog_cols: list[str] | None = None,
     timefm_diurnal_blend_alpha: float = 1.0,
     timefm_roll_actuals: bool = True,
+    chronos_repo: str = "amazon/chronos-2",
+    chronos_context_hours: int = 512,
+    chronos_step_horizon: int = 24,
+    chronos_num_samples: int = 20,
+    chronos_device: str = "auto",
+    chronos_roll_actuals: bool = True,
     temperature: float = 0.2,
 ) -> dict[str, Path]:
+    forecast_model = normalize_forecast_model_name(forecast_model)
     output_dir.mkdir(parents=True, exist_ok=True)
+    run_output_dir = forecast_output_dir(output_dir, forecast_model)
     profiles = build_zone_profiles(
         data_dir,
         output_dir / "cache",
@@ -73,6 +81,12 @@ def run_pipeline(
         timefm_exog_cols=timefm_exog_cols,
         timefm_diurnal_blend_alpha=timefm_diurnal_blend_alpha,
         timefm_roll_actuals=timefm_roll_actuals,
+        chronos_repo=chronos_repo,
+        chronos_context_hours=chronos_context_hours,
+        chronos_step_horizon=chronos_step_horizon,
+        chronos_num_samples=chronos_num_samples,
+        chronos_device=chronos_device,
+        chronos_roll_actuals=chronos_roll_actuals,
     )
 
     if dry_run:
@@ -86,12 +100,17 @@ def run_pipeline(
         run_all_zone_chains(contexts, client=client, temperature=temperature)
     )
     return write_outputs(
-        output_dir=output_dir,
+        output_dir=run_output_dir,
         selected_zones=selected_zones,
         contexts=contexts,
         reports=reports,
         forecast_results=forecast_results,
     )
+
+
+def forecast_output_dir(output_dir: Path, forecast_model: str) -> Path:
+    normalized = normalize_forecast_model_name(forecast_model)
+    return output_dir / safe_filename(normalized or "forecast")
 
 
 def build_contexts(
@@ -109,6 +128,12 @@ def build_contexts(
     timefm_exog_cols: list[str] | None,
     timefm_diurnal_blend_alpha: float,
     timefm_roll_actuals: bool,
+    chronos_repo: str,
+    chronos_context_hours: int,
+    chronos_step_horizon: int,
+    chronos_num_samples: int,
+    chronos_device: str,
+    chronos_roll_actuals: bool,
 ) -> tuple[list[dict[str, Any]], dict[str, ForecastResult]]:
     start = pd.Timestamp(forecast_start) if forecast_start else None
     contexts = []
@@ -137,6 +162,12 @@ def build_contexts(
             timefm_exog_cols=timefm_exog_cols,
             timefm_diurnal_blend_alpha=timefm_diurnal_blend_alpha,
             timefm_roll_actuals=timefm_roll_actuals,
+            chronos_repo=chronos_repo,
+            chronos_context_hours=chronos_context_hours,
+            chronos_step_horizon=chronos_step_horizon,
+            chronos_num_samples=chronos_num_samples,
+            chronos_device=chronos_device,
+            chronos_roll_actuals=chronos_roll_actuals,
         )
         forecast_results[zone_id] = result
         context = {

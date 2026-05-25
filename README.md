@@ -46,28 +46,32 @@ python main.py --dry-run --horizon-days 4 --history-days 7
 python main.py --dry-run --zones 102 --horizon-days 1
 python main.py --dry-run --zones 102,104,108 --horizon-days 1
 python main.py --dry-run --zones 102 --weather-file weather_central.csv --forecast-start "2022-09-09 00:00:00" --horizon-days 6
+python main.py --dry-run --forecast-model chronos
 python main.py --config config.yaml --model anthropic/claude-sonnet-4.5 --forecast-start "2023-02-25 00:00:00"
 python main.py --force-cache
 ```
 
 Runtime defaults can be stored under `run:` in `config.yaml`, so common settings do not need to be typed each time. Command-line options override YAML values only for that run. When `run.zones` / `--zones` is omitted, the pipeline keeps the original five-category automatic zone selection. When zones are provided, the pipeline skips category selection and validates only the specified zone ids.
 
-Set `run.forecast_model: "timefm"` to use `google/timesfm-2.5-200m-pytorch` for load forecasting. Set `run.forecast_model: "seasonal_naive"` for a fast baseline run without TimeFM.
+Set `run.forecast_model: "timesfm"` to use `google/timesfm-2.5-200m-pytorch` for load forecasting. Set `run.forecast_model: "seasonal_naive"` for a fast baseline run without TimesFM.
+Set `run.forecast_model: "chronos"` to use Chronos. The default Chronos config uses `amazon/chronos-2`, rolls actual observations into the context during retrospective multi-day evaluation, and exports the same `predicted_kwh`, `q10_kwh`, `q50_kwh`, and `q90_kwh` columns as TimesFM.
 
-The TimeFM path now follows the `zone102_timefm1.ipynb` workflow:
+Legacy `timefm` config values and `timefm_*` option keys are still accepted as aliases, but new configs should use `timesfm`.
+
+The TimesFM path now follows the `zone102_timefm1.ipynb` workflow:
 
 - `run.weather_file` chooses the weather source. Use `weather_central.csv` to match `zone102_timefm1.ipynb`; the default project path uses `weather_airport.csv`.
 - `run.history_days: 7` builds the context window.
 - `run.validation_days: 1` reserves the day before `forecast_start` for bias calibration.
-- `run.timefm_exog_cols` controls dynamic numerical covariates. The notebook-style default is `T`, `U`, `nRAIN`, `e_price`, `is_weekend`, and `temp_price_idx`.
-- `run.timefm_diurnal_blend_alpha` blends the TimeFM point forecast with the recent hourly load profile. `1.0` matches the notebook setting; `0.0` disables the blend.
-- `run.timefm_roll_actuals: true` rolls known actual values into the context during multi-day validation/forecast steps.
+- `run.timesfm_exog_cols` controls dynamic numerical covariates. The notebook-style default is `T`, `U`, `nRAIN`, `e_price`, `is_weekend`, and `temp_price_idx`.
+- `run.timesfm_diurnal_blend_alpha` blends the TimesFM point forecast with the recent hourly load profile. `1.0` matches the notebook setting; `0.0` disables the blend.
+- `run.timesfm_roll_actuals: true` rolls known actual values into the context during multi-day validation/forecast steps.
 
-The first TimeFM run may download model weights from Hugging Face. The dependency list installs TimeFM from the official `google-research/timesfm` repository, plus `torch`, `jax`/`jaxlib`, and `scikit-learn` for the PyTorch model class and covariate regression path.
+The first TimesFM run may download model weights from Hugging Face. The dependency list installs TimesFM from the official `google-research/timesfm` repository, plus `torch`, `jax`/`jaxlib`, and `scikit-learn` for the PyTorch model class and covariate regression path.
 
 ## Outputs
 
-Generated files are written to `output/`:
+Generated result files are written under a forecast-model subfolder, for example `output/timesfm/`, `output/chronos/`, or `output/seasonal_naive/`:
 
 - `selected_zones.csv`: the five selected zones and the proxy features used for selection.
 - `context_snippets.json`: token-efficient context passed to each agent.
@@ -75,10 +79,10 @@ Generated files are written to `output/`:
 - `rationale_trace.md`: markdown table for a report or paper appendix.
 - `rationale_trace.json`: full structured agent outputs.
 - `forecast_metrics.csv` / `forecast_metrics.md`: per-zone forecast metrics including MAE, RMSE, MAPE, RAE, and WAPE.
-- `forecast_details/zone_<id>_forecast_vs_actual.csv`: hourly actual vs predicted values, residuals, TimeFM raw/bias-corrected values, and P10/P50/P90 columns when TimeFM returns quantiles.
+- `forecast_details/zone_<id>_forecast_vs_actual.csv`: hourly actual vs predicted values, residuals, TimesFM raw/bias-corrected values, and P10/P50/P90 columns when TimesFM returns quantiles.
 - `forecast_details/zone_<id>_forecast_plot.png`: per-zone actual/predicted plot, P10-P90 band when available, residual bars, and metric summary.
 
-The first full run builds cached POI-to-zone assignments in `output/cache/`. Later runs reuse that cache unless `--force-cache` is passed.
+The first full run builds cached POI-to-zone assignments in `output/cache/`. Later runs reuse that shared cache unless `--force-cache` is passed.
 
 ## Data Notes
 
