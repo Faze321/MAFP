@@ -15,6 +15,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--config", default="config.yaml", help="YAML config file for run and model settings.")
     parser.add_argument("--data-dir", default=None, help="Directory containing UrbanEV CSV files.")
     parser.add_argument("--output-dir", default=None, help="Directory for generated reports.")
+    parser.add_argument("--weather-file", default=None, help="Weather CSV file under data-dir.")
     parser.add_argument("--model", default=None, help="Model id, for example openai/gpt-4o-mini.")
     parser.add_argument(
         "--dry-run",
@@ -55,6 +56,7 @@ def main(argv: list[str] | None = None) -> int:
         output_dir=Path(args.output_dir or run_config.output_dir),
         config_path=config_path,
         model=args.model,
+        weather_file=args.weather_file or run_config.weather_file,
         dry_run=args.dry_run if args.dry_run is not None else run_config.dry_run,
         force_cache=args.force_cache if args.force_cache is not None else run_config.force_cache,
         max_poi_rows=args.max_poi_rows if args.max_poi_rows is not None else run_config.max_poi_rows,

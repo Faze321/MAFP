@@ -32,7 +32,9 @@ class ConfigTests(unittest.TestCase):
     def test_reads_run_yaml_config(self):
         config = AppConfig.from_file(Path("config.example.yaml"))
         self.assertTrue(config.run.dry_run)
-        self.assertEqual(config.run.horizon_days, 1)
+        self.assertEqual(config.run.weather_file, "weather_central.csv")
+        self.assertEqual(config.run.forecast_start, "2022-09-09 00:00:00")
+        self.assertEqual(config.run.horizon_days, 6)
         self.assertEqual(config.run.history_days, 7)
         self.assertEqual(config.run.validation_days, 1)
         self.assertEqual(config.run.zone_ids, ["102"])

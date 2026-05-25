@@ -21,6 +21,7 @@ def run_pipeline(
     output_dir: Path,
     config_path: Path = Path("config.yaml"),
     model: str | None = None,
+    weather_file: str = "weather_airport.csv",
     dry_run: bool = False,
     force_cache: bool = False,
     max_poi_rows: int | None = None,
@@ -52,7 +53,12 @@ def run_pipeline(
         else select_zone_categories(profiles)
     )
     selected_zone_ids = selected_zones["zone_id"].astype(str).tolist()
-    pipeline_data = load_pipeline_data(data_dir, profiles, selected_zone_ids)
+    pipeline_data = load_pipeline_data(
+        data_dir,
+        profiles,
+        selected_zone_ids,
+        weather_file=weather_file,
+    )
     contexts, forecast_results = build_contexts(
         pipeline_data=pipeline_data,
         selected_zones=selected_zones,

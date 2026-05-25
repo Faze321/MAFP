@@ -3,7 +3,7 @@
 This project implements the conference-work requirement in `Conference work.docx`:
 
 1. Select five UrbanEV zones that behave like CBD/office, residential, transport hub, commercial/mall, and industrial demand profiles.
-2. Build compact context snippets from `volume-11kW.csv`, `weather_airport.csv`, `poi.csv`, `inf.csv`, `occupancy.csv`, and `s_price.csv`.
+2. Build compact context snippets from `volume-11kW.csv`, a configurable weather file, `poi.csv`, `inf.csv`, `occupancy.csv`, and `s_price.csv`.
 3. Run a sequential multi-agent chain per zone:
    - Grid Analyst: forecast 1-4 days of load and assign a grid stress level.
    - Behavioural Agent: explain the demand drivers from POI mix, weather, and time markers.
@@ -45,6 +45,7 @@ python main.py
 python main.py --dry-run --horizon-days 4 --history-days 7
 python main.py --dry-run --zones 102 --horizon-days 1
 python main.py --dry-run --zones 102,104,108 --horizon-days 1
+python main.py --dry-run --zones 102 --weather-file weather_central.csv --forecast-start "2022-09-09 00:00:00" --horizon-days 6
 python main.py --config config.yaml --model anthropic/claude-sonnet-4.5 --forecast-start "2023-02-25 00:00:00"
 python main.py --force-cache
 ```
@@ -55,6 +56,7 @@ Set `run.forecast_model: "timefm"` to use `google/timesfm-2.5-200m-pytorch` for 
 
 The TimeFM path now follows the `zone102_timefm1.ipynb` workflow:
 
+- `run.weather_file` chooses the weather source. Use `weather_central.csv` to match `zone102_timefm1.ipynb`; the default project path uses `weather_airport.csv`.
 - `run.history_days: 7` builds the context window.
 - `run.validation_days: 1` reserves the day before `forecast_start` for bias calibration.
 - `run.timefm_exog_cols` controls dynamic numerical covariates. The notebook-style default is `T`, `U`, `nRAIN`, `e_price`, `is_weekend`, and `temp_price_idx`.

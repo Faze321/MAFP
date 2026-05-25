@@ -9,6 +9,7 @@ from typing import Any
 class RunConfig:
     data_dir: str = "data"
     output_dir: str = "output"
+    weather_file: str = "weather_airport.csv"
     dry_run: bool = False
     force_cache: bool = False
     max_poi_rows: int | None = None
@@ -40,6 +41,7 @@ class RunConfig:
         return cls(
             data_dir=optional_str(settings.get("data_dir")) or "data",
             output_dir=optional_str(settings.get("output_dir")) or "output",
+            weather_file=optional_str(settings.get("weather_file")) or "weather_airport.csv",
             dry_run=optional_bool(settings.get("dry_run"), False),
             force_cache=optional_bool(settings.get("force_cache"), False),
             max_poi_rows=optional_int(settings.get("max_poi_rows")),

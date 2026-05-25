@@ -200,12 +200,18 @@ def compute_price_features(price: pd.DataFrame, zone_ids: list[str]) -> pd.DataF
     return features
 
 
-def load_pipeline_data(data_dir: Path, profiles: pd.DataFrame, selected_zone_ids: list[str]) -> PipelineData:
+def load_pipeline_data(
+    data_dir: Path,
+    profiles: pd.DataFrame,
+    selected_zone_ids: list[str],
+    *,
+    weather_file: str = "weather_airport.csv",
+) -> PipelineData:
     load = read_time_matrix(data_dir / "volume-11kW.csv", selected_zone_ids)
     service_price = read_time_matrix(data_dir / "s_price.csv", selected_zone_ids)
     energy_price = read_time_matrix(data_dir / "e_price.csv", selected_zone_ids)
     occupancy = read_time_matrix(data_dir / "occupancy.csv", selected_zone_ids)
-    weather = read_weather(data_dir / "weather_airport.csv")
+    weather = read_weather(data_dir / weather_file)
     return PipelineData(
         load=load,
         service_price=service_price,

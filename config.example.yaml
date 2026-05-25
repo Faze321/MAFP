@@ -7,11 +7,12 @@ agent:
 run:
   data_dir: "data"
   output_dir: "output"
+  weather_file: "weather_central.csv"
   dry_run: true
   force_cache: false
   max_poi_rows: null
-  forecast_start: null
-  horizon_days: 1
+  forecast_start: "2022-09-09 00:00:00"
+  horizon_days: 6
   history_days: 7
   validation_days: 1
   zones:

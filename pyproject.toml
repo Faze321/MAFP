@@ -3,24 +3,26 @@ name = "mapf"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
-requires-python = ">=3.12,<3.13"
+requires-python = ">=3.10"
 dependencies = [
-    "matplotlib>=3.10.9",
-    "numpy>=2.4.6",
-    "openai>=2.38.0",
-    "pandas>=3.0.3",
-    "pyyaml>=6.0.3",
-    "torch>=2.0.0",
-    "jax>=0.4.0",
-    "jaxlib>=0.4.0",
-    "scikit-learn>=1.3",
-    "timesfm @ git+https://github.com/google-research/timesfm.git",
+    "chronos-forecasting>=2.0",
     "ipykernel>=7.2.0",
+    "ipywidgets>=8.1.8",
+    "matplotlib>=3.10.9",
+    "numpy>=2.2.6",
+    "openai>=2.38.0",
+    "pandas>=2.3.3",
+    "pyyaml>=6.0.3",
     "requests>=2.34.2",
+    "timesfm",
+    "torch>=2.12.0",
 ]
+
 
 [tool.uv.sources]
 torch = { index = "pytorch-cu130" }
+torchvision = { index = "pytorch-cu130" }
+timesfm = { path = "../timesfm", editable = true }
 
 [[tool.uv.index]]
 name = "pytorch-cu130"
