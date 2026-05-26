@@ -46,10 +46,13 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(config.run.forecast_model, "timesfm")
         self.assertEqual(config.run.timefm_repo, "google/timesfm-2.5-200m-pytorch")
         self.assertEqual(config.run.timefm_exog_cols[:4], ["T", "U", "nRAIN", "e_price"])
+        self.assertEqual(config.run.seasonal_diurnal_blend_alpha, 0.0)
         self.assertEqual(config.run.chronos_repo, "amazon/chronos-2")
         self.assertEqual(config.run.chronos_context_hours, 512)
+        self.assertEqual(config.run.chronos_diurnal_blend_alpha, 0.0)
         self.assertEqual(config.run.lstm_context_hours, 24)
         self.assertEqual(config.run.lstm_epochs, 50)
+        self.assertEqual(config.run.lstm_diurnal_blend_alpha, 0.0)
 
     def test_accepts_legacy_timefm_config_aliases(self):
         config = RunConfig.from_mapping(
@@ -189,6 +192,7 @@ class ForecastingTests(unittest.TestCase):
                 repo="fake",
                 context_hours=24,
                 step_horizon=2,
+                diurnal_blend_alpha=0.0,
                 device="cpu",
                 roll_actuals=False,
             )
@@ -218,6 +222,7 @@ class ForecastingTests(unittest.TestCase):
             epochs=2,
             learning_rate=0.01,
             batch_size=8,
+            diurnal_blend_alpha=0.0,
             device="cpu",
             roll_actuals=False,
             seed=7,

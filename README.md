@@ -68,6 +68,8 @@ The TimesFM path now follows the `zone102_timefm1.ipynb` workflow:
 - `run.timesfm_diurnal_blend_alpha` blends the TimesFM point forecast with the recent hourly load profile. `1.0` matches the notebook setting; `0.0` disables the blend.
 - `run.timesfm_roll_actuals: true` rolls known actual values into the context during multi-day validation/forecast steps.
 
+The same daily-shape blend is available for the other forecasting methods through `run.chronos_diurnal_blend_alpha`, `run.lstm_diurnal_blend_alpha`, and `run.seasonal_diurnal_blend_alpha`. Their defaults are `0.0`, so existing Chronos, LSTM, and seasonal-naive results do not change unless you opt in.
+
 The first TimesFM run may download model weights from Hugging Face. The dependency list installs TimesFM from the official `google-research/timesfm` repository, plus `torch`, `jax`/`jaxlib`, and `scikit-learn` for the PyTorch model class and covariate regression path.
 
 The LSTM path uses the existing `torch` installation and trains only on the selected zone's history window. `run.lstm_context_hours`, `run.lstm_epochs`, `run.lstm_hidden_size`, and `run.lstm_exog_cols` control the local model size and training setup.

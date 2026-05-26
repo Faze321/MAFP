@@ -25,9 +25,11 @@ class RunConfig:
     timefm_exog_cols: list[str] | None = None
     timefm_diurnal_blend_alpha: float = 1.0
     timefm_roll_actuals: bool = True
+    seasonal_diurnal_blend_alpha: float = 0.0
     chronos_repo: str = "amazon/chronos-2"
     chronos_context_hours: int = 512
     chronos_step_horizon: int = 24
+    chronos_diurnal_blend_alpha: float = 0.0
     chronos_device: str = "auto"
     chronos_roll_actuals: bool = True
     lstm_context_hours: int = 24
@@ -38,6 +40,7 @@ class RunConfig:
     lstm_epochs: int = 50
     lstm_learning_rate: float = 0.001
     lstm_batch_size: int = 32
+    lstm_diurnal_blend_alpha: float = 0.0
     lstm_device: str = "auto"
     lstm_roll_actuals: bool = True
     lstm_seed: int = 42
@@ -55,8 +58,10 @@ class RunConfig:
         timefm_diurnal_blend_alpha = optional_float(
             first_setting(settings, "timesfm_diurnal_blend_alpha", "timefm_diurnal_blend_alpha")
         )
+        seasonal_diurnal_blend_alpha = optional_float(settings.get("seasonal_diurnal_blend_alpha"))
         chronos_context_hours = optional_int(settings.get("chronos_context_hours"))
         chronos_step_horizon = optional_int(settings.get("chronos_step_horizon"))
+        chronos_diurnal_blend_alpha = optional_float(settings.get("chronos_diurnal_blend_alpha"))
         lstm_context_hours = optional_int(settings.get("lstm_context_hours"))
         lstm_step_horizon = optional_int(settings.get("lstm_step_horizon"))
         lstm_hidden_size = optional_int(settings.get("lstm_hidden_size"))
@@ -64,6 +69,7 @@ class RunConfig:
         lstm_epochs = optional_int(settings.get("lstm_epochs"))
         lstm_learning_rate = optional_float(settings.get("lstm_learning_rate"))
         lstm_batch_size = optional_int(settings.get("lstm_batch_size"))
+        lstm_diurnal_blend_alpha = optional_float(settings.get("lstm_diurnal_blend_alpha"))
         lstm_seed = optional_int(settings.get("lstm_seed"))
         temperature = optional_float(settings.get("temperature"))
         return cls(
@@ -88,9 +94,15 @@ class RunConfig:
                 timefm_diurnal_blend_alpha if timefm_diurnal_blend_alpha is not None else 1.0
             ),
             timefm_roll_actuals=optional_bool(first_setting(settings, "timesfm_roll_actuals", "timefm_roll_actuals"), True),
+            seasonal_diurnal_blend_alpha=(
+                seasonal_diurnal_blend_alpha if seasonal_diurnal_blend_alpha is not None else 0.0
+            ),
             chronos_repo=optional_str(settings.get("chronos_repo")) or "amazon/chronos-2",
             chronos_context_hours=chronos_context_hours if chronos_context_hours is not None else 512,
             chronos_step_horizon=chronos_step_horizon if chronos_step_horizon is not None else 24,
+            chronos_diurnal_blend_alpha=(
+                chronos_diurnal_blend_alpha if chronos_diurnal_blend_alpha is not None else 0.0
+            ),
             chronos_device=optional_str(settings.get("chronos_device")) or "auto",
             chronos_roll_actuals=optional_bool(settings.get("chronos_roll_actuals"), True),
             lstm_context_hours=lstm_context_hours if lstm_context_hours is not None else 24,
@@ -101,6 +113,7 @@ class RunConfig:
             lstm_epochs=lstm_epochs if lstm_epochs is not None else 50,
             lstm_learning_rate=lstm_learning_rate if lstm_learning_rate is not None else 0.001,
             lstm_batch_size=lstm_batch_size if lstm_batch_size is not None else 32,
+            lstm_diurnal_blend_alpha=lstm_diurnal_blend_alpha if lstm_diurnal_blend_alpha is not None else 0.0,
             lstm_device=optional_str(settings.get("lstm_device")) or "auto",
             lstm_roll_actuals=optional_bool(settings.get("lstm_roll_actuals"), True),
             lstm_seed=lstm_seed if lstm_seed is not None else 42,

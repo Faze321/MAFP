@@ -28,11 +28,13 @@ run:
     - "e_price"
     - "is_weekend"
     - "temp_price_idx"
-  timesfm_diurnal_blend_alpha: 1.0
+  timesfm_diurnal_blend_alpha: 0.0
   timesfm_roll_actuals: true
+  seasonal_diurnal_blend_alpha: 0.0
   chronos_repo: "amazon/chronos-2"
   chronos_context_hours: 512
   chronos_step_horizon: 24
+  chronos_diurnal_blend_alpha: 0.0
   chronos_device: "auto"
   chronos_roll_actuals: true
   lstm_context_hours: 24
@@ -49,6 +51,7 @@ run:
   lstm_epochs: 50
   lstm_learning_rate: 0.001
   lstm_batch_size: 32
+  lstm_diurnal_blend_alpha: 0.0
   lstm_device: "auto"
   lstm_roll_actuals: true
   lstm_seed: 42

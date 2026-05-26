@@ -51,9 +51,11 @@ def forecast_zone(
     timefm_exog_cols: list[str] | None = None,
     timefm_diurnal_blend_alpha: float = 1.0,
     timefm_roll_actuals: bool = True,
+    seasonal_diurnal_blend_alpha: float = 0.0,
     chronos_repo: str = "amazon/chronos-2",
     chronos_context_hours: int = 512,
     chronos_step_horizon: int = 24,
+    chronos_diurnal_blend_alpha: float = 0.0,
     chronos_device: str = "auto",
     chronos_roll_actuals: bool = True,
     lstm_context_hours: int = 24,
@@ -64,6 +66,7 @@ def forecast_zone(
     lstm_epochs: int = 50,
     lstm_learning_rate: float = 0.001,
     lstm_batch_size: int = 32,
+    lstm_diurnal_blend_alpha: float = 0.0,
     lstm_device: str = "auto",
     lstm_roll_actuals: bool = True,
     lstm_seed: int = 42,
@@ -101,9 +104,11 @@ def forecast_zone(
         timefm_exog_cols=timefm_exog_cols or DEFAULT_TIMEFM_EXOG_COLS,
         timefm_diurnal_blend_alpha=timefm_diurnal_blend_alpha,
         timefm_roll_actuals=timefm_roll_actuals,
+        seasonal_diurnal_blend_alpha=seasonal_diurnal_blend_alpha,
         chronos_repo=chronos_repo,
         chronos_context_hours=chronos_context_hours,
         chronos_step_horizon=chronos_step_horizon,
+        chronos_diurnal_blend_alpha=chronos_diurnal_blend_alpha,
         chronos_device=chronos_device,
         chronos_roll_actuals=chronos_roll_actuals,
         lstm_context_hours=lstm_context_hours,
@@ -114,6 +119,7 @@ def forecast_zone(
         lstm_epochs=lstm_epochs,
         lstm_learning_rate=lstm_learning_rate,
         lstm_batch_size=lstm_batch_size,
+        lstm_diurnal_blend_alpha=lstm_diurnal_blend_alpha,
         lstm_device=lstm_device,
         lstm_roll_actuals=lstm_roll_actuals,
         lstm_seed=lstm_seed,
@@ -153,9 +159,15 @@ def forecast_zone(
         if normalized_model == "timesfm"
         else None,
         "timesfm_roll_actuals": bool(timefm_roll_actuals) if normalized_model == "timesfm" else None,
+        "seasonal_diurnal_blend_alpha": round(float(seasonal_diurnal_blend_alpha), 4)
+        if normalized_model in {"seasonal", "seasonal_naive", "naive"}
+        else None,
         "chronos_repo": chronos_repo if normalized_model.startswith("chronos") else None,
         "chronos_context_hours": int(chronos_context_hours) if normalized_model.startswith("chronos") else None,
         "chronos_step_horizon": int(chronos_step_horizon) if normalized_model.startswith("chronos") else None,
+        "chronos_diurnal_blend_alpha": round(float(chronos_diurnal_blend_alpha), 4)
+        if normalized_model.startswith("chronos")
+        else None,
         "chronos_device": chronos_device if normalized_model.startswith("chronos") else None,
         "chronos_roll_actuals": bool(chronos_roll_actuals) if normalized_model.startswith("chronos") else None,
         "lstm_context_hours": int(lstm_context_hours) if normalized_model == "lstm" else None,
@@ -166,6 +178,7 @@ def forecast_zone(
         "lstm_epochs": int(lstm_epochs) if normalized_model == "lstm" else None,
         "lstm_learning_rate": float(lstm_learning_rate) if normalized_model == "lstm" else None,
         "lstm_batch_size": int(lstm_batch_size) if normalized_model == "lstm" else None,
+        "lstm_diurnal_blend_alpha": round(float(lstm_diurnal_blend_alpha), 4) if normalized_model == "lstm" else None,
         "lstm_device": lstm_device if normalized_model == "lstm" else None,
         "lstm_roll_actuals": bool(lstm_roll_actuals) if normalized_model == "lstm" else None,
         "calibration": forecast_attrs.get("calibration"),
@@ -208,9 +221,11 @@ def forecast_load(
     timefm_exog_cols: list[str],
     timefm_diurnal_blend_alpha: float,
     timefm_roll_actuals: bool,
+    seasonal_diurnal_blend_alpha: float,
     chronos_repo: str,
     chronos_context_hours: int,
     chronos_step_horizon: int,
+    chronos_diurnal_blend_alpha: float,
     chronos_device: str,
     chronos_roll_actuals: bool,
     lstm_context_hours: int,
@@ -221,13 +236,19 @@ def forecast_load(
     lstm_epochs: int,
     lstm_learning_rate: float,
     lstm_batch_size: int,
+    lstm_diurnal_blend_alpha: float,
     lstm_device: str,
     lstm_roll_actuals: bool,
     lstm_seed: int,
 ) -> pd.DataFrame:
     normalized = normalize_forecast_model_name(model_name)
     if normalized in {"seasonal", "seasonal_naive", "naive"}:
-        return seasonal_naive_forecast(history, forecast_start, horizon_hours)
+        return seasonal_naive_forecast(
+            history,
+            forecast_start,
+            horizon_hours,
+            diurnal_blend_alpha=seasonal_diurnal_blend_alpha,
+        )
     if normalized == "timesfm":
         return timefm_forecast(
             history,
@@ -252,6 +273,7 @@ def forecast_load(
             repo=chronos_repo,
             context_hours=chronos_context_hours,
             step_horizon=chronos_step_horizon,
+            diurnal_blend_alpha=chronos_diurnal_blend_alpha,
             device=chronos_device,
             roll_actuals=chronos_roll_actuals,
         )
@@ -270,6 +292,7 @@ def forecast_load(
             epochs=lstm_epochs,
             learning_rate=lstm_learning_rate,
             batch_size=lstm_batch_size,
+            diurnal_blend_alpha=lstm_diurnal_blend_alpha,
             device=lstm_device,
             roll_actuals=lstm_roll_actuals,
             seed=lstm_seed,
@@ -413,6 +436,7 @@ def chronos_forecast(
     repo: str,
     context_hours: int,
     step_horizon: int,
+    diurnal_blend_alpha: float,
     device: str,
     roll_actuals: bool,
 ) -> pd.DataFrame:
@@ -423,6 +447,7 @@ def chronos_forecast(
     step = max(1, int(step_horizon))
     pipeline = load_chronos_model(repo, device)
     rolling_load = context_load.copy()
+    diurnal_by_hour = build_diurnal_profile(history)
 
     calibration: dict[str, Any] = {
         "enabled": False,
@@ -439,9 +464,15 @@ def chronos_forecast(
             val_horizon,
             context_hours,
         )
+        val_times = pd.to_datetime(validation["time"].iloc[:val_horizon])
+        val_point = blend_with_diurnal(
+            val_raw[:val_horizon],
+            diurnal_for_times(val_times, diurnal_by_hour),
+            diurnal_blend_alpha,
+        )
         val_actual = validation["actual_kwh"].astype(float).to_numpy(dtype=np.float64)[:val_horizon]
-        bias_vec = align_vector(val_raw[:val_horizon] - val_actual, step)
-        val_cmp = pd.DataFrame({"actual_kwh": val_actual, "predicted_kwh": val_raw[:val_horizon]})
+        bias_vec = align_vector(val_point - val_actual, step)
+        val_cmp = pd.DataFrame({"actual_kwh": val_actual, "predicted_kwh": val_point})
         calibration = {
             "enabled": True,
             "bias_mean": round(float(np.nanmean(bias_vec)), 4),
@@ -464,14 +495,19 @@ def chronos_forecast(
             context_hours,
         )
         bias = align_vector(bias_vec, chunk_horizon)
-        point = np.clip(raw[:chunk_horizon] - bias, 0, None)
+        bias_corrected = np.clip(raw[:chunk_horizon] - bias, 0, None)
+        point = blend_with_diurnal(
+            bias_corrected,
+            diurnal_for_times(chunk_times, diurnal_by_hour),
+            diurnal_blend_alpha,
+        )
         q10, q90 = rebuild_quantile_interval(point, raw_q10[:chunk_horizon], raw_q90[:chunk_horizon])
         rows.append(
             pd.DataFrame(
                 {
                     "time": chunk_times,
                     "raw_predicted_kwh": raw[:chunk_horizon],
-                    "bias_corrected_kwh": point,
+                    "bias_corrected_kwh": bias_corrected,
                     "predicted_kwh": point,
                     "q10_kwh": q10,
                     "q50_kwh": point,
@@ -515,6 +551,7 @@ def lstm_forecast(
     epochs: int,
     learning_rate: float,
     batch_size: int,
+    diurnal_blend_alpha: float,
     device: str,
     roll_actuals: bool,
     seed: int,
@@ -538,6 +575,7 @@ def lstm_forecast(
     )
     rolling_load = context_load.copy()
     rolling_exog = build_lstm_exog_matrix(history, exog_cols)
+    diurnal_by_hour = build_diurnal_profile(history)
 
     calibration: dict[str, Any] = {
         "enabled": False,
@@ -552,11 +590,17 @@ def lstm_forecast(
         val_horizon = min(step, len(validation))
         val_exog = build_lstm_exog_matrix(validation.iloc[:val_horizon], exog_cols)
         val_raw = run_lstm_prediction(bundle, rolling_load, rolling_exog, val_exog, val_horizon)
+        val_times = pd.to_datetime(validation["time"].iloc[:val_horizon])
+        val_point = blend_with_diurnal(
+            val_raw[:val_horizon],
+            diurnal_for_times(val_times, diurnal_by_hour),
+            diurnal_blend_alpha,
+        )
         val_actual = validation["actual_kwh"].astype(float).to_numpy(dtype=np.float64)[:val_horizon]
-        residual = val_raw[:val_horizon] - val_actual
+        residual = val_point - val_actual
         bias_vec = align_vector(residual, step)
         interval_half_width = estimate_interval_half_width(residual)
-        val_cmp = pd.DataFrame({"actual_kwh": val_actual, "predicted_kwh": val_raw[:val_horizon]})
+        val_cmp = pd.DataFrame({"actual_kwh": val_actual, "predicted_kwh": val_point})
         calibration = {
             "enabled": True,
             "bias_mean": round(float(np.nanmean(bias_vec)), 4),
@@ -583,7 +627,12 @@ def lstm_forecast(
         chunk_exog = build_lstm_exog_matrix(chunk_frame, exog_cols)
         raw = run_lstm_prediction(bundle, rolling_load, rolling_exog, chunk_exog, chunk_horizon)
         bias = align_vector(bias_vec, chunk_horizon)
-        point = np.clip(raw[:chunk_horizon] - bias, 0, None)
+        bias_corrected = np.clip(raw[:chunk_horizon] - bias, 0, None)
+        point = blend_with_diurnal(
+            bias_corrected,
+            diurnal_for_times(chunk_times, diurnal_by_hour),
+            diurnal_blend_alpha,
+        )
         q10, q90 = deterministic_interval(point, interval_half_width)
 
         rows.append(
@@ -591,7 +640,7 @@ def lstm_forecast(
                 {
                     "time": chunk_times,
                     "raw_predicted_kwh": raw[:chunk_horizon],
-                    "bias_corrected_kwh": point,
+                    "bias_corrected_kwh": bias_corrected,
                     "predicted_kwh": point,
                     "q10_kwh": q10,
                     "q50_kwh": point,
@@ -1213,7 +1262,13 @@ def compute_forecast_metrics(hourly: pd.DataFrame) -> dict[str, float | None]:
     }
 
 
-def seasonal_naive_forecast(history: pd.DataFrame, forecast_start: pd.Timestamp, horizon_hours: int) -> pd.DataFrame:
+def seasonal_naive_forecast(
+    history: pd.DataFrame,
+    forecast_start: pd.Timestamp,
+    horizon_hours: int,
+    *,
+    diurnal_blend_alpha: float = 0.0,
+) -> pd.DataFrame:
     hist = history.set_index("time")["actual_kwh"].astype(float).sort_index()
     target_index = pd.date_range(forecast_start, periods=horizon_hours, freq="h")
     hourly_mean = hist.groupby(hist.index.hour).mean()
@@ -1225,6 +1280,11 @@ def seasonal_naive_forecast(history: pd.DataFrame, forecast_start: pd.Timestamp,
     mean_daily = hist.resample("D").sum().mean()
     trend_scale = 1.0 if mean_daily == 0 or np.isnan(mean_daily) else np.clip(last_24 / mean_daily, 0.75, 1.25)
     predicted = np.maximum(predicted * trend_scale, 0.0)
+    predicted = blend_with_diurnal(
+        predicted,
+        diurnal_for_times(target_index, build_diurnal_profile(history)),
+        diurnal_blend_alpha,
+    )
     return pd.DataFrame({"time": target_index, "predicted_kwh": predicted})
 
 
