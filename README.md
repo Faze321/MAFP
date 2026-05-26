@@ -47,13 +47,14 @@ python main.py --dry-run --zones 102 --horizon-days 1
 python main.py --dry-run --zones 102,104,108 --horizon-days 1
 python main.py --dry-run --zones 102 --weather-file weather_central.csv --forecast-start "2022-09-09 00:00:00" --horizon-days 6
 python main.py --dry-run --forecast-model chronos
+python main.py --dry-run --forecast-model lstm
 python main.py --config config.yaml --model anthropic/claude-sonnet-4.5 --forecast-start "2023-02-25 00:00:00"
 python main.py --force-cache
 ```
 
 Runtime defaults can be stored under `run:` in `config.yaml`, so common settings do not need to be typed each time. Command-line options override YAML values only for that run. When `run.zones` / `--zones` is omitted, the pipeline keeps the original five-category automatic zone selection. When zones are provided, the pipeline skips category selection and validates only the specified zone ids.
 
-Set `run.forecast_model: "timesfm"` to use `google/timesfm-2.5-200m-pytorch` for load forecasting. Set `run.forecast_model: "seasonal_naive"` for a fast baseline run without TimesFM.
+Set `run.forecast_model: "timesfm"` to use `google/timesfm-2.5-200m-pytorch` for load forecasting. Set `run.forecast_model: "lstm"` to train a small local PyTorch LSTM per zone. Set `run.forecast_model: "seasonal_naive"` for a fast baseline run without TimesFM.
 Set `run.forecast_model: "chronos"` to use Chronos. The default Chronos config uses `amazon/chronos-2`, rolls actual observations into the context during retrospective multi-day evaluation, and exports the same `predicted_kwh`, `q10_kwh`, `q50_kwh`, and `q90_kwh` columns as TimesFM.
 
 Legacy `timefm` config values and `timefm_*` option keys are still accepted as aliases, but new configs should use `timesfm`.
@@ -69,9 +70,11 @@ The TimesFM path now follows the `zone102_timefm1.ipynb` workflow:
 
 The first TimesFM run may download model weights from Hugging Face. The dependency list installs TimesFM from the official `google-research/timesfm` repository, plus `torch`, `jax`/`jaxlib`, and `scikit-learn` for the PyTorch model class and covariate regression path.
 
+The LSTM path uses the existing `torch` installation and trains only on the selected zone's history window. `run.lstm_context_hours`, `run.lstm_epochs`, `run.lstm_hidden_size`, and `run.lstm_exog_cols` control the local model size and training setup.
+
 ## Outputs
 
-Generated result files are written under a forecast-model subfolder, for example `output/timesfm/`, `output/chronos/`, or `output/seasonal_naive/`:
+Generated result files are written under a forecast-model subfolder, for example `output/timesfm/`, `output/chronos/`, `output/lstm/`, or `output/seasonal_naive/`:
 
 - `selected_zones.csv`: the five selected zones and the proxy features used for selection.
 - `context_snippets.json`: token-efficient context passed to each agent.

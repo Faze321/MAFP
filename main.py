@@ -16,7 +16,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--data-dir", default=None, help="Directory containing UrbanEV CSV files.")
     parser.add_argument("--output-dir", default=None, help="Directory for generated reports.")
     parser.add_argument("--weather-file", default=None, help="Weather CSV file under data-dir.")
-    parser.add_argument("--forecast-model", default=None, help="Forecast model: timesfm, chronos, or seasonal_naive.")
+    parser.add_argument(
+        "--forecast-model",
+        default=None,
+        help="Forecast model: timesfm, chronos, lstm, or seasonal_naive.",
+    )
     parser.add_argument("--model", default=None, help="Model id, for example openai/gpt-4o-mini.")
     parser.add_argument(
         "--dry-run",
@@ -76,9 +80,19 @@ def main(argv: list[str] | None = None) -> int:
         chronos_repo=run_config.chronos_repo,
         chronos_context_hours=run_config.chronos_context_hours,
         chronos_step_horizon=run_config.chronos_step_horizon,
-        chronos_num_samples=run_config.chronos_num_samples,
         chronos_device=run_config.chronos_device,
         chronos_roll_actuals=run_config.chronos_roll_actuals,
+        lstm_context_hours=run_config.lstm_context_hours,
+        lstm_step_horizon=run_config.lstm_step_horizon,
+        lstm_exog_cols=run_config.lstm_exog_cols,
+        lstm_hidden_size=run_config.lstm_hidden_size,
+        lstm_num_layers=run_config.lstm_num_layers,
+        lstm_epochs=run_config.lstm_epochs,
+        lstm_learning_rate=run_config.lstm_learning_rate,
+        lstm_batch_size=run_config.lstm_batch_size,
+        lstm_device=run_config.lstm_device,
+        lstm_roll_actuals=run_config.lstm_roll_actuals,
+        lstm_seed=run_config.lstm_seed,
         temperature=args.temperature if args.temperature is not None else run_config.temperature,
     )
     print("Generated outputs:")

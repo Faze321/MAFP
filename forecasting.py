@@ -1,6 +1,4 @@
 from __future__ import annotations
-
-import inspect
 from dataclasses import dataclass
 from typing import Any
 
@@ -19,6 +17,17 @@ DEFAULT_TIMEFM_EXOG_COLS = ["T", "U", "nRAIN", "e_price", "is_weekend", "temp_pr
 class ForecastResult:
     hourly: pd.DataFrame
     summary: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class LSTMForecastBundle:
+    model: Any
+    load_mean: float
+    load_std: float
+    exog_mean: np.ndarray
+    exog_std: np.ndarray
+    context_hours: int
+    device: str
 
 
 def forecast_zone(
@@ -45,9 +54,19 @@ def forecast_zone(
     chronos_repo: str = "amazon/chronos-2",
     chronos_context_hours: int = 512,
     chronos_step_horizon: int = 24,
-    chronos_num_samples: int = 20,
     chronos_device: str = "auto",
     chronos_roll_actuals: bool = True,
+    lstm_context_hours: int = 24,
+    lstm_step_horizon: int = 24,
+    lstm_exog_cols: list[str] | None = None,
+    lstm_hidden_size: int = 64,
+    lstm_num_layers: int = 1,
+    lstm_epochs: int = 50,
+    lstm_learning_rate: float = 0.001,
+    lstm_batch_size: int = 32,
+    lstm_device: str = "auto",
+    lstm_roll_actuals: bool = True,
+    lstm_seed: int = 42,
 ) -> ForecastResult:
     zone_id = str(zone_id)
     normalized_model = normalize_forecast_model_name(forecast_model)
@@ -85,9 +104,19 @@ def forecast_zone(
         chronos_repo=chronos_repo,
         chronos_context_hours=chronos_context_hours,
         chronos_step_horizon=chronos_step_horizon,
-        chronos_num_samples=chronos_num_samples,
         chronos_device=chronos_device,
         chronos_roll_actuals=chronos_roll_actuals,
+        lstm_context_hours=lstm_context_hours,
+        lstm_step_horizon=lstm_step_horizon,
+        lstm_exog_cols=lstm_exog_cols or DEFAULT_TIMEFM_EXOG_COLS,
+        lstm_hidden_size=lstm_hidden_size,
+        lstm_num_layers=lstm_num_layers,
+        lstm_epochs=lstm_epochs,
+        lstm_learning_rate=lstm_learning_rate,
+        lstm_batch_size=lstm_batch_size,
+        lstm_device=lstm_device,
+        lstm_roll_actuals=lstm_roll_actuals,
+        lstm_seed=lstm_seed,
     )
     forecast_attrs = dict(hourly.attrs)
     hourly = hourly.merge(actual, on="time", how="left")
@@ -127,9 +156,18 @@ def forecast_zone(
         "chronos_repo": chronos_repo if normalized_model.startswith("chronos") else None,
         "chronos_context_hours": int(chronos_context_hours) if normalized_model.startswith("chronos") else None,
         "chronos_step_horizon": int(chronos_step_horizon) if normalized_model.startswith("chronos") else None,
-        "chronos_num_samples": int(chronos_num_samples) if normalized_model == "chronos" else None,
         "chronos_device": chronos_device if normalized_model.startswith("chronos") else None,
         "chronos_roll_actuals": bool(chronos_roll_actuals) if normalized_model.startswith("chronos") else None,
+        "lstm_context_hours": int(lstm_context_hours) if normalized_model == "lstm" else None,
+        "lstm_step_horizon": int(lstm_step_horizon) if normalized_model == "lstm" else None,
+        "lstm_exog_cols": (lstm_exog_cols or DEFAULT_TIMEFM_EXOG_COLS) if normalized_model == "lstm" else None,
+        "lstm_hidden_size": int(lstm_hidden_size) if normalized_model == "lstm" else None,
+        "lstm_num_layers": int(lstm_num_layers) if normalized_model == "lstm" else None,
+        "lstm_epochs": int(lstm_epochs) if normalized_model == "lstm" else None,
+        "lstm_learning_rate": float(lstm_learning_rate) if normalized_model == "lstm" else None,
+        "lstm_batch_size": int(lstm_batch_size) if normalized_model == "lstm" else None,
+        "lstm_device": lstm_device if normalized_model == "lstm" else None,
+        "lstm_roll_actuals": bool(lstm_roll_actuals) if normalized_model == "lstm" else None,
         "calibration": forecast_attrs.get("calibration"),
         "forecast_total_kwh": round(forecast_total, 2),
         "forecast_peak_kwh": round(forecast_peak, 2),
@@ -173,9 +211,19 @@ def forecast_load(
     chronos_repo: str,
     chronos_context_hours: int,
     chronos_step_horizon: int,
-    chronos_num_samples: int,
     chronos_device: str,
     chronos_roll_actuals: bool,
+    lstm_context_hours: int,
+    lstm_step_horizon: int,
+    lstm_exog_cols: list[str],
+    lstm_hidden_size: int,
+    lstm_num_layers: int,
+    lstm_epochs: int,
+    lstm_learning_rate: float,
+    lstm_batch_size: int,
+    lstm_device: str,
+    lstm_roll_actuals: bool,
+    lstm_seed: int,
 ) -> pd.DataFrame:
     normalized = normalize_forecast_model_name(model_name)
     if normalized in {"seasonal", "seasonal_naive", "naive"}:
@@ -204,9 +252,27 @@ def forecast_load(
             repo=chronos_repo,
             context_hours=chronos_context_hours,
             step_horizon=chronos_step_horizon,
-            num_samples=chronos_num_samples,
             device=chronos_device,
             roll_actuals=chronos_roll_actuals,
+        )
+    if normalized == "lstm":
+        return lstm_forecast(
+            history,
+            validation,
+            full_frame,
+            forecast_start,
+            horizon_hours,
+            context_hours=lstm_context_hours,
+            step_horizon=lstm_step_horizon,
+            exog_cols=lstm_exog_cols,
+            hidden_size=lstm_hidden_size,
+            num_layers=lstm_num_layers,
+            epochs=lstm_epochs,
+            learning_rate=lstm_learning_rate,
+            batch_size=lstm_batch_size,
+            device=lstm_device,
+            roll_actuals=lstm_roll_actuals,
+            seed=lstm_seed,
         )
     raise ValueError(f"Unsupported forecast_model: {model_name}")
 
@@ -347,7 +413,6 @@ def chronos_forecast(
     repo: str,
     context_hours: int,
     step_horizon: int,
-    num_samples: int,
     device: str,
     roll_actuals: bool,
 ) -> pd.DataFrame:
@@ -373,7 +438,6 @@ def chronos_forecast(
             rolling_load,
             val_horizon,
             context_hours,
-            num_samples,
         )
         val_actual = validation["actual_kwh"].astype(float).to_numpy(dtype=np.float64)[:val_horizon]
         bias_vec = align_vector(val_raw[:val_horizon] - val_actual, step)
@@ -398,7 +462,6 @@ def chronos_forecast(
             rolling_load,
             chunk_horizon,
             context_hours,
-            num_samples,
         )
         bias = align_vector(bias_vec, chunk_horizon)
         point = np.clip(raw[:chunk_horizon] - bias, 0, None)
@@ -429,6 +492,121 @@ def chronos_forecast(
         else:
             roll_values = point
         rolling_load = np.concatenate([rolling_load, roll_values])
+        remaining -= chunk_horizon
+        offset += chunk_horizon
+
+    result = pd.concat(rows, ignore_index=True) if rows else pd.DataFrame(columns=["time", "predicted_kwh"])
+    result.attrs["calibration"] = calibration
+    return result
+
+
+def lstm_forecast(
+    history: pd.DataFrame,
+    validation: pd.DataFrame,
+    full_frame: pd.DataFrame,
+    forecast_start: pd.Timestamp,
+    horizon_hours: int,
+    *,
+    context_hours: int,
+    step_horizon: int,
+    exog_cols: list[str],
+    hidden_size: int,
+    num_layers: int,
+    epochs: int,
+    learning_rate: float,
+    batch_size: int,
+    device: str,
+    roll_actuals: bool,
+    seed: int,
+) -> pd.DataFrame:
+    context_load = history["actual_kwh"].astype(float).to_numpy(dtype=np.float64)
+    if len(context_load) < 2:
+        raise ValueError("LSTM requires at least two historical values")
+
+    step = max(1, int(step_horizon))
+    bundle = train_lstm_model(
+        history,
+        context_hours=context_hours,
+        exog_cols=exog_cols,
+        hidden_size=hidden_size,
+        num_layers=num_layers,
+        epochs=epochs,
+        learning_rate=learning_rate,
+        batch_size=batch_size,
+        device=device,
+        seed=seed,
+    )
+    rolling_load = context_load.copy()
+    rolling_exog = build_lstm_exog_matrix(history, exog_cols)
+
+    calibration: dict[str, Any] = {
+        "enabled": False,
+        "bias_mean": 0.0,
+        "bias_max_abs": 0.0,
+        "interval_half_width": None,
+        "metrics": None,
+    }
+    bias_vec = np.zeros(step, dtype=np.float64)
+    interval_half_width = np.nan
+    if not validation.empty:
+        val_horizon = min(step, len(validation))
+        val_exog = build_lstm_exog_matrix(validation.iloc[:val_horizon], exog_cols)
+        val_raw = run_lstm_prediction(bundle, rolling_load, rolling_exog, val_exog, val_horizon)
+        val_actual = validation["actual_kwh"].astype(float).to_numpy(dtype=np.float64)[:val_horizon]
+        residual = val_raw[:val_horizon] - val_actual
+        bias_vec = align_vector(residual, step)
+        interval_half_width = estimate_interval_half_width(residual)
+        val_cmp = pd.DataFrame({"actual_kwh": val_actual, "predicted_kwh": val_raw[:val_horizon]})
+        calibration = {
+            "enabled": True,
+            "bias_mean": round(float(np.nanmean(bias_vec)), 4),
+            "bias_max_abs": round(float(np.nanmax(np.abs(bias_vec))), 4),
+            "interval_half_width": finite_round(interval_half_width, 4),
+            "metrics": compute_forecast_metrics(val_cmp),
+        }
+        rolling_load = np.concatenate([rolling_load, validation["actual_kwh"].astype(float).to_numpy(dtype=np.float64)])
+        rolling_exog = np.vstack([rolling_exog, build_lstm_exog_matrix(validation, exog_cols)])
+
+    rows: list[pd.DataFrame] = []
+    remaining = horizon_hours
+    offset = 0
+    while remaining > 0:
+        chunk_horizon = min(step, remaining)
+        chunk_start = forecast_start + pd.Timedelta(hours=offset)
+        chunk_times = pd.date_range(chunk_start, periods=chunk_horizon, freq="h")
+        chunk_frame = (
+            full_frame.set_index("time")
+            .reindex(chunk_times)
+            .rename_axis("time")
+            .reset_index()
+        )
+        chunk_exog = build_lstm_exog_matrix(chunk_frame, exog_cols)
+        raw = run_lstm_prediction(bundle, rolling_load, rolling_exog, chunk_exog, chunk_horizon)
+        bias = align_vector(bias_vec, chunk_horizon)
+        point = np.clip(raw[:chunk_horizon] - bias, 0, None)
+        q10, q90 = deterministic_interval(point, interval_half_width)
+
+        rows.append(
+            pd.DataFrame(
+                {
+                    "time": chunk_times,
+                    "raw_predicted_kwh": raw[:chunk_horizon],
+                    "bias_corrected_kwh": point,
+                    "predicted_kwh": point,
+                    "q10_kwh": q10,
+                    "q50_kwh": point,
+                    "q90_kwh": q90,
+                }
+            )
+        )
+
+        actual_chunk = chunk_frame.get("actual_kwh")
+        if roll_actuals and actual_chunk is not None and actual_chunk.notna().all():
+            roll_values = actual_chunk.astype(float).to_numpy(dtype=np.float64)
+        else:
+            roll_values = point
+        rolling_load = np.concatenate([rolling_load, roll_values])
+        rolling_exog = np.vstack([rolling_exog, chunk_exog])
         remaining -= chunk_horizon
         offset += chunk_horizon
 
@@ -490,22 +668,19 @@ def load_chronos_model(repo: str, device: str):
 
     try:
         import torch
-        from chronos import Chronos2Pipeline, ChronosBoltPipeline, ChronosPipeline
+        from chronos import Chronos2Pipeline
     except ModuleNotFoundError as exc:
         raise RuntimeError(
-            "chronos-forecasting is required for forecast_model: chronos. "
+            "chronos-forecasting with Chronos2Pipeline is required for forecast_model: chronos. "
             "Install it in this Python environment."
         ) from exc
 
-    dtype = torch.bfloat16 if resolved_device.startswith("cuda") else torch.float32
     repo_lower = repo.lower()
-    if "chronos-2" in repo_lower or "chronos2" in repo_lower:
-        pipeline_cls = Chronos2Pipeline
-    elif "bolt" in repo_lower:
-        pipeline_cls = ChronosBoltPipeline
-    else:
-        pipeline_cls = ChronosPipeline
-    pipeline = pipeline_cls.from_pretrained(
+    if "chronos-2" not in repo_lower and "chronos2" not in repo_lower:
+        raise ValueError('This project only supports Chronos 2. Set chronos_repo: "amazon/chronos-2".')
+
+    dtype = torch.bfloat16 if resolved_device.startswith("cuda") else torch.float32
+    pipeline = Chronos2Pipeline.from_pretrained(
         repo,
         device_map=resolved_device,
         dtype=dtype,
@@ -567,7 +742,6 @@ def run_chronos_prediction(
     context_load: np.ndarray,
     horizon: int,
     context_hours: int,
-    num_samples: int,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     try:
         import torch
@@ -577,8 +751,6 @@ def run_chronos_prediction(
     ctx = context_load[-context_hours:].astype(np.float32)
     inputs = [torch.tensor(ctx, dtype=torch.float32)]
     predict_kwargs: dict[str, Any] = {"limit_prediction_length": False}
-    if chronos_supports_num_samples(pipeline):
-        predict_kwargs["num_samples"] = int(num_samples)
     quantiles, _ = pipeline.predict_quantiles(
         inputs,
         prediction_length=int(horizon),
@@ -602,14 +774,251 @@ def run_chronos_prediction(
     return np.clip(q50, 0, None), np.clip(q10, 0, None), np.clip(q90, 0, None)
 
 
-def chronos_supports_num_samples(pipeline) -> bool:
-    predict = getattr(pipeline, "predict", None)
-    if predict is None:
-        return pipeline.__class__.__name__ == "ChronosPipeline"
+def train_lstm_model(
+    history: pd.DataFrame,
+    *,
+    context_hours: int,
+    exog_cols: list[str],
+    hidden_size: int,
+    num_layers: int,
+    epochs: int,
+    learning_rate: float,
+    batch_size: int,
+    device: str,
+    seed: int,
+) -> LSTMForecastBundle:
     try:
-        return "num_samples" in inspect.signature(predict).parameters
-    except (TypeError, ValueError):
-        return pipeline.__class__.__name__ == "ChronosPipeline"
+        import torch
+    except ModuleNotFoundError as exc:
+        raise RuntimeError("torch is required for forecast_model: lstm.") from exc
+
+    load = history["actual_kwh"].astype(float).to_numpy(dtype=np.float64)
+    exog = build_lstm_exog_matrix(history, exog_cols)
+    if len(load) < 2:
+        raise ValueError("LSTM requires at least two historical values")
+
+    resolved_device = resolve_torch_device(device)
+    torch.manual_seed(int(seed))
+    if resolved_device.startswith("cuda") and torch.cuda.is_available():
+        torch.cuda.manual_seed_all(int(seed))
+
+    load_mean = float(np.nanmean(load))
+    load_std = safe_std(load)
+    exog_mean = np.nanmean(exog, axis=0) if exog.size else np.empty(0, dtype=np.float64)
+    exog_std = np.nanstd(exog, axis=0) if exog.size else np.empty(0, dtype=np.float64)
+    exog_std = np.where(exog_std > 1e-9, exog_std, 1.0)
+    context = max(1, int(context_hours))
+
+    x_train, y_train = build_lstm_training_arrays(
+        load,
+        exog,
+        context,
+        load_mean,
+        load_std,
+        exog_mean,
+        exog_std,
+    )
+    input_size = int(x_train.shape[-1])
+    model = create_lstm_regressor(
+        input_size=input_size,
+        hidden_size=max(1, int(hidden_size)),
+        num_layers=max(1, int(num_layers)),
+    ).to(resolved_device)
+
+    features = torch.tensor(x_train, dtype=torch.float32, device=resolved_device)
+    targets = torch.tensor(y_train[:, np.newaxis], dtype=torch.float32, device=resolved_device)
+    dataset = torch.utils.data.TensorDataset(features, targets)
+    loader = torch.utils.data.DataLoader(
+        dataset,
+        batch_size=min(max(1, int(batch_size)), len(dataset)),
+        shuffle=True,
+    )
+    optimizer = torch.optim.Adam(model.parameters(), lr=float(learning_rate))
+    loss_fn = torch.nn.MSELoss()
+
+    model.train()
+    for _ in range(max(1, int(epochs))):
+        for batch_x, batch_y in loader:
+            optimizer.zero_grad(set_to_none=True)
+            loss = loss_fn(model(batch_x), batch_y)
+            loss.backward()
+            optimizer.step()
+
+    model.eval()
+    return LSTMForecastBundle(
+        model=model,
+        load_mean=load_mean,
+        load_std=load_std,
+        exog_mean=exog_mean,
+        exog_std=exog_std,
+        context_hours=context,
+        device=resolved_device,
+    )
+
+
+def create_lstm_regressor(input_size: int, hidden_size: int, num_layers: int):
+    import torch
+
+    class LSTMRegressor(torch.nn.Module):
+        def __init__(self) -> None:
+            super().__init__()
+            self.lstm = torch.nn.LSTM(
+                input_size=input_size,
+                hidden_size=hidden_size,
+                num_layers=num_layers,
+                batch_first=True,
+            )
+            self.head = torch.nn.Linear(hidden_size, 1)
+
+        def forward(self, x):
+            out, _ = self.lstm(x)
+            return self.head(out[:, -1, :])
+
+    return LSTMRegressor()
+
+
+def build_lstm_training_arrays(
+    load: np.ndarray,
+    exog: np.ndarray,
+    context_hours: int,
+    load_mean: float,
+    load_std: float,
+    exog_mean: np.ndarray,
+    exog_std: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray]:
+    x_rows = []
+    y_rows = []
+    for target_idx in range(1, len(load)):
+        x_rows.append(
+            build_lstm_sequence(
+                known_load=load,
+                exog_until_target=exog,
+                target_idx=target_idx,
+                context_hours=context_hours,
+                load_mean=load_mean,
+                load_std=load_std,
+                exog_mean=exog_mean,
+                exog_std=exog_std,
+            )
+        )
+        y_rows.append((float(load[target_idx]) - load_mean) / load_std)
+    return np.asarray(x_rows, dtype=np.float32), np.asarray(y_rows, dtype=np.float32)
+
+
+def run_lstm_prediction(
+    bundle: LSTMForecastBundle,
+    rolling_load: np.ndarray,
+    rolling_exog: np.ndarray,
+    future_exog: np.ndarray,
+    horizon: int,
+) -> np.ndarray:
+    import torch
+
+    future_exog = align_exog(future_exog, int(horizon))
+    predictions: list[float] = []
+    exog_until_target = np.vstack([rolling_exog, future_exog])
+
+    with torch.no_grad():
+        for step_idx in range(int(horizon)):
+            known_load = np.concatenate([rolling_load, np.asarray(predictions, dtype=np.float64)])
+            target_idx = len(rolling_load) + step_idx
+            seq = build_lstm_sequence(
+                known_load=known_load,
+                exog_until_target=exog_until_target,
+                target_idx=target_idx,
+                context_hours=bundle.context_hours,
+                load_mean=bundle.load_mean,
+                load_std=bundle.load_std,
+                exog_mean=bundle.exog_mean,
+                exog_std=bundle.exog_std,
+            )
+            tensor = torch.tensor(seq[np.newaxis, :, :], dtype=torch.float32, device=bundle.device)
+            pred_norm = float(bundle.model(tensor).detach().cpu().item())
+            pred = pred_norm * bundle.load_std + bundle.load_mean
+            predictions.append(float(max(pred, 0.0)))
+
+    return np.asarray(predictions, dtype=np.float64)
+
+
+def build_lstm_sequence(
+    *,
+    known_load: np.ndarray,
+    exog_until_target: np.ndarray,
+    target_idx: int,
+    context_hours: int,
+    load_mean: float,
+    load_std: float,
+    exog_mean: np.ndarray,
+    exog_std: np.ndarray,
+) -> np.ndarray:
+    start = max(0, int(target_idx) - int(context_hours) + 1)
+    rows = []
+    for idx in range(start, int(target_idx) + 1):
+        if len(known_load) == 0:
+            prev_load = load_mean
+        elif idx == 0:
+            prev_load = float(known_load[0])
+        else:
+            prev_load = float(known_load[min(idx - 1, len(known_load) - 1)])
+        load_feature = np.asarray([(prev_load - load_mean) / load_std], dtype=np.float64)
+        exog_feature = standardize_exog(exog_until_target[idx], exog_mean, exog_std)
+        rows.append(np.concatenate([load_feature, exog_feature]))
+
+    sequence = np.asarray(rows, dtype=np.float32)
+    if len(sequence) < context_hours:
+        pad = np.repeat(sequence[[0]], context_hours - len(sequence), axis=0)
+        sequence = np.vstack([pad, sequence])
+    return sequence
+
+
+def build_lstm_exog_matrix(frame: pd.DataFrame, exog_cols: list[str]) -> np.ndarray:
+    base = build_exog_matrix(frame, exog_cols)
+    if "time" not in frame:
+        time_features = np.zeros((len(frame), 4), dtype=np.float64)
+    else:
+        times = pd.DatetimeIndex(pd.to_datetime(frame["time"]))
+        hour = times.hour.to_numpy(dtype=np.float64)
+        dayofweek = times.dayofweek.to_numpy(dtype=np.float64)
+        time_features = np.column_stack(
+            [
+                np.sin(2.0 * np.pi * hour / 24.0),
+                np.cos(2.0 * np.pi * hour / 24.0),
+                np.sin(2.0 * np.pi * dayofweek / 7.0),
+                np.cos(2.0 * np.pi * dayofweek / 7.0),
+            ]
+        )
+    return np.hstack([base, time_features]) if base.size else time_features
+
+
+def standardize_exog(exog_row: np.ndarray, exog_mean: np.ndarray, exog_std: np.ndarray) -> np.ndarray:
+    if len(exog_mean) == 0:
+        return np.empty(0, dtype=np.float64)
+    row = np.asarray(exog_row, dtype=np.float64)
+    return (row - exog_mean) / exog_std
+
+
+def safe_std(values: np.ndarray) -> float:
+    std = float(np.nanstd(values))
+    return std if std > 1e-9 else 1.0
+
+
+def estimate_interval_half_width(residual: np.ndarray) -> float:
+    values = np.abs(np.asarray(residual, dtype=np.float64))
+    values = values[np.isfinite(values)]
+    if len(values) == 0:
+        return np.nan
+    return float(np.nanquantile(values, 0.9))
+
+
+def deterministic_interval(point: np.ndarray, half_width: float) -> tuple[np.ndarray, np.ndarray]:
+    point_arr = np.asarray(point, dtype=np.float64)
+    if not np.isfinite(half_width):
+        return np.full(len(point_arr), np.nan), np.full(len(point_arr), np.nan)
+    if half_width <= 0:
+        return point_arr.copy(), point_arr.copy()
+    q10 = np.clip(point_arr - half_width, 0, None)
+    q90 = point_arr + half_width
+    return np.minimum(q10, point_arr), np.maximum(q90, point_arr)
 
 
 def parse_timefm_result(result: Any, horizon: int) -> tuple[np.ndarray, np.ndarray, np.ndarray]:

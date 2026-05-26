@@ -12,6 +12,7 @@ from forecasting import (
     build_zone_model_frame,
     chronos_forecast,
     compute_forecast_metrics,
+    lstm_forecast,
     patch_timefm_hub_kwargs,
     rebuild_quantile_interval,
     seasonal_naive_forecast,
@@ -47,6 +48,8 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(config.run.timefm_exog_cols[:4], ["T", "U", "nRAIN", "e_price"])
         self.assertEqual(config.run.chronos_repo, "amazon/chronos-2")
         self.assertEqual(config.run.chronos_context_hours, 512)
+        self.assertEqual(config.run.lstm_context_hours, 24)
+        self.assertEqual(config.run.lstm_epochs, 50)
 
     def test_accepts_legacy_timefm_config_aliases(self):
         config = RunConfig.from_mapping(
@@ -142,49 +145,6 @@ class ForecastingTests(unittest.TestCase):
         self.assertTrue(np.all(q10[:2] <= point[:2]))
         self.assertTrue(np.all(q90[:2] >= point[:2]))
 
-    def test_chronos_forecast_uses_quantile_output(self):
-        test_case = self
-
-        class FakeChronos:
-            def predict(self, inputs, prediction_length=None, num_samples=None, limit_prediction_length=False):
-                return None
-
-            def predict_quantiles(self, inputs, prediction_length, quantile_levels, **kwargs):
-                test_case.assertEqual(kwargs.get("num_samples"), 2)
-                center = torch.arange(1, prediction_length + 1, dtype=torch.float32)
-                quantiles = torch.stack([center - 0.5, center, center + 0.5], dim=-1).unsqueeze(0)
-                return quantiles, center.unsqueeze(0)
-
-        history = pd.DataFrame(
-            {
-                "time": pd.date_range("2023-01-01", periods=24, freq="h"),
-                "actual_kwh": [float(hour + 1) for hour in range(24)],
-            }
-        )
-        full_frame = pd.DataFrame(
-            {
-                "time": pd.date_range("2023-01-02", periods=3, freq="h"),
-                "actual_kwh": [1.0, 2.0, 3.0],
-            }
-        )
-        with patch("forecasting.load_chronos_model", return_value=FakeChronos()):
-            result = chronos_forecast(
-                history,
-                pd.DataFrame(),
-                full_frame,
-                pd.Timestamp("2023-01-02"),
-                3,
-                repo="fake",
-                context_hours=24,
-                step_horizon=3,
-                num_samples=2,
-                device="cpu",
-                roll_actuals=False,
-            )
-        self.assertEqual(result["predicted_kwh"].tolist(), [1.0, 2.0, 3.0])
-        self.assertTrue((result["q10_kwh"] <= result["predicted_kwh"]).all())
-        self.assertTrue((result["q90_kwh"] >= result["predicted_kwh"]).all())
-
     def test_chronos_forecast_accepts_chronos2_list_output(self):
         test_case = self
 
@@ -202,7 +162,7 @@ class ForecastingTests(unittest.TestCase):
                 return None
 
             def predict_quantiles(self, inputs, prediction_length, quantile_levels, **kwargs):
-                test_case.assertNotIn("num_samples", kwargs)
+                test_case.assertEqual(kwargs, {"limit_prediction_length": False})
                 center = torch.arange(1, prediction_length + 1, dtype=torch.float32)
                 quantiles = torch.stack([center - 0.5, center, center + 0.5], dim=-1).unsqueeze(0)
                 return [quantiles], [center.unsqueeze(0)]
@@ -229,7 +189,6 @@ class ForecastingTests(unittest.TestCase):
                 repo="fake",
                 context_hours=24,
                 step_horizon=2,
-                num_samples=2,
                 device="cpu",
                 roll_actuals=False,
             )
@@ -237,10 +196,44 @@ class ForecastingTests(unittest.TestCase):
         self.assertEqual(result["q10_kwh"].tolist(), [0.5, 1.5])
         self.assertEqual(result["q90_kwh"].tolist(), [1.5, 2.5])
 
+    def test_lstm_forecast_produces_hourly_predictions(self):
+        times = pd.date_range("2023-01-01", periods=60, freq="h")
+        values = 20.0 + 5.0 * np.sin(np.arange(60) / 24.0 * 2.0 * np.pi)
+        frame = pd.DataFrame({"time": times, "actual_kwh": values})
+        history = frame.iloc[:48].reset_index(drop=True)
+        validation = frame.iloc[48:54].reset_index(drop=True)
+        full_frame = frame.iloc[54:60].reset_index(drop=True)
+
+        result = lstm_forecast(
+            history,
+            validation,
+            full_frame,
+            pd.Timestamp("2023-01-03 06:00:00"),
+            6,
+            context_hours=12,
+            step_horizon=3,
+            exog_cols=[],
+            hidden_size=8,
+            num_layers=1,
+            epochs=2,
+            learning_rate=0.01,
+            batch_size=8,
+            device="cpu",
+            roll_actuals=False,
+            seed=7,
+        )
+
+        self.assertEqual(len(result), 6)
+        self.assertTrue(result["predicted_kwh"].notna().all())
+        self.assertTrue((result["predicted_kwh"] >= 0).all())
+        self.assertTrue((result["q10_kwh"] <= result["predicted_kwh"]).all())
+        self.assertTrue((result["q90_kwh"] >= result["predicted_kwh"]).all())
+
 
 class SelectionTests(unittest.TestCase):
     def test_forecast_output_dir_uses_model_subfolder(self):
         self.assertEqual(forecast_output_dir(Path("output"), "chronos"), Path("output") / "chronos")
+        self.assertEqual(forecast_output_dir(Path("output"), "lstm"), Path("output") / "lstm")
         self.assertEqual(forecast_output_dir(Path("output"), "timesfm"), Path("output") / "timesfm")
         self.assertEqual(forecast_output_dir(Path("output"), "timefm"), Path("output") / "timesfm")
         self.assertEqual(

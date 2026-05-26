@@ -28,9 +28,19 @@ class RunConfig:
     chronos_repo: str = "amazon/chronos-2"
     chronos_context_hours: int = 512
     chronos_step_horizon: int = 24
-    chronos_num_samples: int = 20
     chronos_device: str = "auto"
     chronos_roll_actuals: bool = True
+    lstm_context_hours: int = 24
+    lstm_step_horizon: int = 24
+    lstm_exog_cols: list[str] | None = None
+    lstm_hidden_size: int = 64
+    lstm_num_layers: int = 1
+    lstm_epochs: int = 50
+    lstm_learning_rate: float = 0.001
+    lstm_batch_size: int = 32
+    lstm_device: str = "auto"
+    lstm_roll_actuals: bool = True
+    lstm_seed: int = 42
     temperature: float = 0.2
 
     @classmethod
@@ -47,7 +57,14 @@ class RunConfig:
         )
         chronos_context_hours = optional_int(settings.get("chronos_context_hours"))
         chronos_step_horizon = optional_int(settings.get("chronos_step_horizon"))
-        chronos_num_samples = optional_int(settings.get("chronos_num_samples"))
+        lstm_context_hours = optional_int(settings.get("lstm_context_hours"))
+        lstm_step_horizon = optional_int(settings.get("lstm_step_horizon"))
+        lstm_hidden_size = optional_int(settings.get("lstm_hidden_size"))
+        lstm_num_layers = optional_int(settings.get("lstm_num_layers"))
+        lstm_epochs = optional_int(settings.get("lstm_epochs"))
+        lstm_learning_rate = optional_float(settings.get("lstm_learning_rate"))
+        lstm_batch_size = optional_int(settings.get("lstm_batch_size"))
+        lstm_seed = optional_int(settings.get("lstm_seed"))
         temperature = optional_float(settings.get("temperature"))
         return cls(
             data_dir=optional_str(settings.get("data_dir")) or "data",
@@ -74,9 +91,19 @@ class RunConfig:
             chronos_repo=optional_str(settings.get("chronos_repo")) or "amazon/chronos-2",
             chronos_context_hours=chronos_context_hours if chronos_context_hours is not None else 512,
             chronos_step_horizon=chronos_step_horizon if chronos_step_horizon is not None else 24,
-            chronos_num_samples=chronos_num_samples if chronos_num_samples is not None else 20,
             chronos_device=optional_str(settings.get("chronos_device")) or "auto",
             chronos_roll_actuals=optional_bool(settings.get("chronos_roll_actuals"), True),
+            lstm_context_hours=lstm_context_hours if lstm_context_hours is not None else 24,
+            lstm_step_horizon=lstm_step_horizon if lstm_step_horizon is not None else 24,
+            lstm_exog_cols=normalize_zone_id_list(settings.get("lstm_exog_cols")),
+            lstm_hidden_size=lstm_hidden_size if lstm_hidden_size is not None else 64,
+            lstm_num_layers=lstm_num_layers if lstm_num_layers is not None else 1,
+            lstm_epochs=lstm_epochs if lstm_epochs is not None else 50,
+            lstm_learning_rate=lstm_learning_rate if lstm_learning_rate is not None else 0.001,
+            lstm_batch_size=lstm_batch_size if lstm_batch_size is not None else 32,
+            lstm_device=optional_str(settings.get("lstm_device")) or "auto",
+            lstm_roll_actuals=optional_bool(settings.get("lstm_roll_actuals"), True),
+            lstm_seed=lstm_seed if lstm_seed is not None else 42,
             temperature=temperature if temperature is not None else 0.2,
         )
 
