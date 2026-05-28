@@ -13,7 +13,7 @@ from forecasting import (
     chronos_forecast,
     compute_forecast_metrics,
     lstm_forecast,
-    patch_timefm_hub_kwargs,
+    patch_timesfm_hub_kwargs,
     rebuild_quantile_interval,
     seasonal_naive_forecast,
 )
@@ -44,8 +44,8 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(config.run.validation_days, 1)
         self.assertEqual(config.run.zone_ids, ["102"])
         self.assertEqual(config.run.forecast_model, "timesfm")
-        self.assertEqual(config.run.timefm_repo, "google/timesfm-2.5-200m-pytorch")
-        self.assertEqual(config.run.timefm_exog_cols[:4], ["T", "U", "nRAIN", "e_price"])
+        self.assertEqual(config.run.timesfm_repo, "google/timesfm-2.5-200m-pytorch")
+        self.assertEqual(config.run.timesfm_exog_cols[:4], ["T", "U", "nRAIN", "e_price"])
         self.assertEqual(config.run.seasonal_diurnal_blend_alpha, 0.0)
         self.assertEqual(config.run.chronos_repo, "amazon/chronos-2")
         self.assertEqual(config.run.chronos_context_hours, 512)
@@ -54,23 +54,23 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(config.run.lstm_epochs, 50)
         self.assertEqual(config.run.lstm_diurnal_blend_alpha, 0.0)
 
-    def test_accepts_legacy_timefm_config_aliases(self):
+    def test_reads_timesfm_config_keys(self):
         config = RunConfig.from_mapping(
             {
-                "forecast_model": "timefm",
-                "timefm_repo": "google/timesfm-2.5-200m-pytorch",
-                "timefm_context_hours": 48,
-                "timefm_exog_cols": ["T", "U"],
+                "forecast_model": "timesfm",
+                "timesfm_repo": "google/timesfm-2.5-200m-pytorch",
+                "timesfm_context_hours": 48,
+                "timesfm_exog_cols": ["T", "U"],
             }
         )
         self.assertEqual(config.forecast_model, "timesfm")
-        self.assertEqual(config.timefm_context_hours, 48)
-        self.assertEqual(config.timefm_exog_cols, ["T", "U"])
+        self.assertEqual(config.timesfm_context_hours, 48)
+        self.assertEqual(config.timesfm_exog_cols, ["T", "U"])
 
 
 class ForecastingTests(unittest.TestCase):
     def test_timesfm_loader_strips_huggingface_hub_kwargs(self):
-        class FakeTimeFM:
+        class FakeTimesFM:
             seen_kwargs = None
 
             @classmethod
@@ -78,8 +78,8 @@ class ForecastingTests(unittest.TestCase):
                 cls.seen_kwargs = kwargs
                 return cls()
 
-        patch_timefm_hub_kwargs(FakeTimeFM)
-        FakeTimeFM._from_pretrained(
+        patch_timesfm_hub_kwargs(FakeTimesFM)
+        FakeTimesFM._from_pretrained(
             model_id="fake/repo",
             revision=None,
             cache_dir=None,
@@ -91,9 +91,9 @@ class ForecastingTests(unittest.TestCase):
             config={"model": "fake"},
         )
 
-        self.assertNotIn("proxies", FakeTimeFM.seen_kwargs)
-        self.assertNotIn("resume_download", FakeTimeFM.seen_kwargs)
-        self.assertEqual(FakeTimeFM.seen_kwargs["config"], {"model": "fake"})
+        self.assertNotIn("proxies", FakeTimesFM.seen_kwargs)
+        self.assertNotIn("resume_download", FakeTimesFM.seen_kwargs)
+        self.assertEqual(FakeTimesFM.seen_kwargs["config"], {"model": "fake"})
 
     def test_seasonal_forecast_keeps_hourly_horizon(self):
         history = pd.DataFrame(
@@ -240,7 +240,6 @@ class SelectionTests(unittest.TestCase):
         self.assertEqual(forecast_output_dir(Path("output"), "chronos"), Path("output") / "chronos")
         self.assertEqual(forecast_output_dir(Path("output"), "lstm"), Path("output") / "lstm")
         self.assertEqual(forecast_output_dir(Path("output"), "timesfm"), Path("output") / "timesfm")
-        self.assertEqual(forecast_output_dir(Path("output"), "timefm"), Path("output") / "timesfm")
         self.assertEqual(
             forecast_output_dir(Path("output"), "seasonal-naive"),
             Path("output") / "seasonal_naive",

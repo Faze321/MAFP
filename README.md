@@ -57,8 +57,6 @@ Runtime defaults can be stored under `run:` in `config.yaml`, so common settings
 Set `run.forecast_model: "timesfm"` to use `google/timesfm-2.5-200m-pytorch` for load forecasting. Set `run.forecast_model: "lstm"` to train a small local PyTorch LSTM per zone. Set `run.forecast_model: "seasonal_naive"` for a fast baseline run without TimesFM.
 Set `run.forecast_model: "chronos"` to use Chronos. The default Chronos config uses `amazon/chronos-2`, rolls actual observations into the context during retrospective multi-day evaluation, and exports the same `predicted_kwh`, `q10_kwh`, `q50_kwh`, and `q90_kwh` columns as TimesFM.
 
-Legacy `timefm` config values and `timefm_*` option keys are still accepted as aliases, but new configs should use `timesfm`.
-
 The TimesFM path now follows the `zone102_timefm1.ipynb` workflow:
 
 - `run.weather_file` chooses the weather source. Use `weather_central.csv` to match `zone102_timefm1.ipynb`; the default project path uses `weather_airport.csv`.

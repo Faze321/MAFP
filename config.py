@@ -19,12 +19,12 @@ class RunConfig:
     validation_days: int = 1
     zone_ids: list[str] | None = None
     forecast_model: str = "timesfm"
-    timefm_repo: str = "google/timesfm-2.5-200m-pytorch"
-    timefm_context_hours: int = 168
-    timefm_step_horizon: int = 24
-    timefm_exog_cols: list[str] | None = None
-    timefm_diurnal_blend_alpha: float = 1.0
-    timefm_roll_actuals: bool = True
+    timesfm_repo: str = "google/timesfm-2.5-200m-pytorch"
+    timesfm_context_hours: int = 168
+    timesfm_step_horizon: int = 24
+    timesfm_exog_cols: list[str] | None = None
+    timesfm_diurnal_blend_alpha: float = 1.0
+    timesfm_roll_actuals: bool = True
     seasonal_diurnal_blend_alpha: float = 0.0
     chronos_repo: str = "amazon/chronos-2"
     chronos_context_hours: int = 512
@@ -53,10 +53,10 @@ class RunConfig:
         horizon_days = optional_int(settings.get("horizon_days"))
         history_days = optional_int(settings.get("history_days"))
         validation_days = optional_int(settings.get("validation_days"))
-        timefm_context_hours = optional_int(first_setting(settings, "timesfm_context_hours", "timefm_context_hours"))
-        timefm_step_horizon = optional_int(first_setting(settings, "timesfm_step_horizon", "timefm_step_horizon"))
-        timefm_diurnal_blend_alpha = optional_float(
-            first_setting(settings, "timesfm_diurnal_blend_alpha", "timefm_diurnal_blend_alpha")
+        timesfm_context_hours = optional_int(settings.get("timesfm_context_hours"))
+        timesfm_step_horizon = optional_int(settings.get("timesfm_step_horizon"))
+        timesfm_diurnal_blend_alpha = optional_float(
+            settings.get("timesfm_diurnal_blend_alpha")
         )
         seasonal_diurnal_blend_alpha = optional_float(settings.get("seasonal_diurnal_blend_alpha"))
         chronos_context_hours = optional_int(settings.get("chronos_context_hours"))
@@ -85,15 +85,15 @@ class RunConfig:
             validation_days=validation_days if validation_days is not None else 1,
             zone_ids=normalize_zone_id_list(zone_ids),
             forecast_model=normalize_forecast_model_name(optional_str(settings.get("forecast_model"))),
-            timefm_repo=optional_str(first_setting(settings, "timesfm_repo", "timefm_repo"))
+            timesfm_repo=optional_str(settings.get("timesfm_repo"))
             or "google/timesfm-2.5-200m-pytorch",
-            timefm_context_hours=timefm_context_hours if timefm_context_hours is not None else 168,
-            timefm_step_horizon=timefm_step_horizon if timefm_step_horizon is not None else 24,
-            timefm_exog_cols=normalize_zone_id_list(first_setting(settings, "timesfm_exog_cols", "timefm_exog_cols")),
-            timefm_diurnal_blend_alpha=(
-                timefm_diurnal_blend_alpha if timefm_diurnal_blend_alpha is not None else 1.0
+            timesfm_context_hours=timesfm_context_hours if timesfm_context_hours is not None else 168,
+            timesfm_step_horizon=timesfm_step_horizon if timesfm_step_horizon is not None else 24,
+            timesfm_exog_cols=normalize_zone_id_list(settings.get("timesfm_exog_cols")),
+            timesfm_diurnal_blend_alpha=(
+                timesfm_diurnal_blend_alpha if timesfm_diurnal_blend_alpha is not None else 1.0
             ),
-            timefm_roll_actuals=optional_bool(first_setting(settings, "timesfm_roll_actuals", "timefm_roll_actuals"), True),
+            timesfm_roll_actuals=optional_bool(settings.get("timesfm_roll_actuals"), True),
             seasonal_diurnal_blend_alpha=(
                 seasonal_diurnal_blend_alpha if seasonal_diurnal_blend_alpha is not None else 0.0
             ),
@@ -199,7 +199,7 @@ class AppConfig:
 
 
 def read_config_mapping(path: Path) -> dict[str, Any]:
-    text = path.read_text(encoding="utf-8-sig")
+    text = path.read_text(encoding="utf-8")
     value = read_yaml_mapping(text)
     if not isinstance(value, dict):
         raise ValueError(f"Config file must contain a mapping: {path}")
@@ -325,18 +325,8 @@ def optional_str(value: Any) -> str | None:
     return text or None
 
 
-def first_setting(settings: dict[str, Any], *keys: str) -> Any:
-    for key in keys:
-        if key in settings:
-            return settings[key]
-    return None
-
-
 def normalize_forecast_model_name(value: str | None) -> str:
-    normalized = (value or "timesfm").strip().lower().replace("-", "_")
-    if normalized == "timefm":
-        return "timesfm"
-    return normalized
+    return (value or "timesfm").strip().lower().replace("-", "_")
 
 
 def optional_int(value: Any) -> int | None:

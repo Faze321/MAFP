@@ -8,9 +8,9 @@ import pandas as pd
 from config import normalize_forecast_model_name
 
 
-_TIMEFM_MODEL_CACHE: dict[tuple[str, int, int], Any] = {}
+_TIMESFM_MODEL_CACHE: dict[tuple[str, int, int], Any] = {}
 _CHRONOS_MODEL_CACHE: dict[tuple[str, str], Any] = {}
-DEFAULT_TIMEFM_EXOG_COLS = ["T", "U", "nRAIN", "e_price", "is_weekend", "temp_price_idx"]
+DEFAULT_TIMESFM_EXOG_COLS = ["T", "U", "nRAIN", "e_price", "is_weekend", "temp_price_idx"]
 
 
 @dataclass(frozen=True)
@@ -45,12 +45,12 @@ def forecast_zone(
     history_days: int,
     validation_days: int = 1,
     forecast_model: str = "timesfm",
-    timefm_repo: str = "google/timesfm-2.5-200m-pytorch",
-    timefm_context_hours: int = 168,
-    timefm_step_horizon: int = 24,
-    timefm_exog_cols: list[str] | None = None,
-    timefm_diurnal_blend_alpha: float = 1.0,
-    timefm_roll_actuals: bool = True,
+    timesfm_repo: str = "google/timesfm-2.5-200m-pytorch",
+    timesfm_context_hours: int = 168,
+    timesfm_step_horizon: int = 24,
+    timesfm_exog_cols: list[str] | None = None,
+    timesfm_diurnal_blend_alpha: float = 1.0,
+    timesfm_roll_actuals: bool = True,
     seasonal_diurnal_blend_alpha: float = 0.0,
     chronos_repo: str = "amazon/chronos-2",
     chronos_context_hours: int = 512,
@@ -98,12 +98,12 @@ def forecast_zone(
         forecast_start,
         horizon_hours,
         model_name=forecast_model,
-        timefm_repo=timefm_repo,
-        timefm_context_hours=timefm_context_hours,
-        timefm_step_horizon=timefm_step_horizon,
-        timefm_exog_cols=timefm_exog_cols or DEFAULT_TIMEFM_EXOG_COLS,
-        timefm_diurnal_blend_alpha=timefm_diurnal_blend_alpha,
-        timefm_roll_actuals=timefm_roll_actuals,
+        timesfm_repo=timesfm_repo,
+        timesfm_context_hours=timesfm_context_hours,
+        timesfm_step_horizon=timesfm_step_horizon,
+        timesfm_exog_cols=timesfm_exog_cols or DEFAULT_TIMESFM_EXOG_COLS,
+        timesfm_diurnal_blend_alpha=timesfm_diurnal_blend_alpha,
+        timesfm_roll_actuals=timesfm_roll_actuals,
         seasonal_diurnal_blend_alpha=seasonal_diurnal_blend_alpha,
         chronos_repo=chronos_repo,
         chronos_context_hours=chronos_context_hours,
@@ -113,7 +113,7 @@ def forecast_zone(
         chronos_roll_actuals=chronos_roll_actuals,
         lstm_context_hours=lstm_context_hours,
         lstm_step_horizon=lstm_step_horizon,
-        lstm_exog_cols=lstm_exog_cols or DEFAULT_TIMEFM_EXOG_COLS,
+        lstm_exog_cols=lstm_exog_cols or DEFAULT_TIMESFM_EXOG_COLS,
         lstm_hidden_size=lstm_hidden_size,
         lstm_num_layers=lstm_num_layers,
         lstm_epochs=lstm_epochs,
@@ -154,25 +154,19 @@ def forecast_zone(
         "forecast_start": forecast_start.isoformat(),
         "forecast_end": forecast_end.isoformat(),
         "forecast_model": normalized_model,
-        "timesfm_covariates": (timefm_exog_cols or DEFAULT_TIMEFM_EXOG_COLS) if normalized_model == "timesfm" else None,
-        "timesfm_diurnal_blend_alpha": round(float(timefm_diurnal_blend_alpha), 4)
-        if normalized_model == "timesfm"
-        else None,
-        "timesfm_roll_actuals": bool(timefm_roll_actuals) if normalized_model == "timesfm" else None,
-        "seasonal_diurnal_blend_alpha": round(float(seasonal_diurnal_blend_alpha), 4)
-        if normalized_model in {"seasonal", "seasonal_naive", "naive"}
-        else None,
+        "timesfm_covariates": (timesfm_exog_cols or DEFAULT_TIMESFM_EXOG_COLS) if normalized_model == "timesfm" else None,
+        "timesfm_diurnal_blend_alpha": round(float(timesfm_diurnal_blend_alpha), 4) if normalized_model == "timesfm" else None,
+        "timesfm_roll_actuals": bool(timesfm_roll_actuals) if normalized_model == "timesfm" else None,
+        "seasonal_diurnal_blend_alpha": round(float(seasonal_diurnal_blend_alpha), 4) if normalized_model in {"seasonal", "seasonal_naive", "naive"} else None,
         "chronos_repo": chronos_repo if normalized_model.startswith("chronos") else None,
         "chronos_context_hours": int(chronos_context_hours) if normalized_model.startswith("chronos") else None,
         "chronos_step_horizon": int(chronos_step_horizon) if normalized_model.startswith("chronos") else None,
-        "chronos_diurnal_blend_alpha": round(float(chronos_diurnal_blend_alpha), 4)
-        if normalized_model.startswith("chronos")
-        else None,
+        "chronos_diurnal_blend_alpha": round(float(chronos_diurnal_blend_alpha), 4) if normalized_model.startswith("chronos") else None,
         "chronos_device": chronos_device if normalized_model.startswith("chronos") else None,
         "chronos_roll_actuals": bool(chronos_roll_actuals) if normalized_model.startswith("chronos") else None,
         "lstm_context_hours": int(lstm_context_hours) if normalized_model == "lstm" else None,
         "lstm_step_horizon": int(lstm_step_horizon) if normalized_model == "lstm" else None,
-        "lstm_exog_cols": (lstm_exog_cols or DEFAULT_TIMEFM_EXOG_COLS) if normalized_model == "lstm" else None,
+        "lstm_exog_cols": (lstm_exog_cols or DEFAULT_TIMESFM_EXOG_COLS) if normalized_model == "lstm" else None,
         "lstm_hidden_size": int(lstm_hidden_size) if normalized_model == "lstm" else None,
         "lstm_num_layers": int(lstm_num_layers) if normalized_model == "lstm" else None,
         "lstm_epochs": int(lstm_epochs) if normalized_model == "lstm" else None,
@@ -215,12 +209,12 @@ def forecast_load(
     horizon_hours: int,
     *,
     model_name: str,
-    timefm_repo: str,
-    timefm_context_hours: int,
-    timefm_step_horizon: int,
-    timefm_exog_cols: list[str],
-    timefm_diurnal_blend_alpha: float,
-    timefm_roll_actuals: bool,
+    timesfm_repo: str,
+    timesfm_context_hours: int,
+    timesfm_step_horizon: int,
+    timesfm_exog_cols: list[str],
+    timesfm_diurnal_blend_alpha: float,
+    timesfm_roll_actuals: bool,
     seasonal_diurnal_blend_alpha: float,
     chronos_repo: str,
     chronos_context_hours: int,
@@ -250,18 +244,18 @@ def forecast_load(
             diurnal_blend_alpha=seasonal_diurnal_blend_alpha,
         )
     if normalized == "timesfm":
-        return timefm_forecast(
+        return timesfm_forecast(
             history,
             validation,
             full_frame,
             forecast_start,
             horizon_hours,
-            repo=timefm_repo,
-            context_hours=timefm_context_hours,
-            step_horizon=timefm_step_horizon,
-            exog_cols=timefm_exog_cols,
-            diurnal_blend_alpha=timefm_diurnal_blend_alpha,
-            roll_actuals=timefm_roll_actuals,
+            repo=timesfm_repo,
+            context_hours=timesfm_context_hours,
+            step_horizon=timesfm_step_horizon,
+            exog_cols=timesfm_exog_cols,
+            diurnal_blend_alpha=timesfm_diurnal_blend_alpha,
+            roll_actuals=timesfm_roll_actuals,
         )
     if normalized in {"chronos"}:
         return chronos_forecast(
@@ -300,7 +294,7 @@ def forecast_load(
     raise ValueError(f"Unsupported forecast_model: {model_name}")
 
 
-def timefm_forecast(
+def timesfm_forecast(
     history: pd.DataFrame,
     validation: pd.DataFrame,
     full_frame: pd.DataFrame,
@@ -320,7 +314,7 @@ def timefm_forecast(
 
     step = max(1, int(step_horizon))
     compile_horizon = max(step, 32)
-    model = load_timefm_model(repo, context_hours, compile_horizon)
+    model = load_timesfm_model(repo, context_hours, compile_horizon)
     rolling_load = context_load.copy()
     rolling_exog = build_exog_matrix(history, exog_cols)
     diurnal_by_hour = build_diurnal_profile(history)
@@ -335,7 +329,7 @@ def timefm_forecast(
     if not validation.empty:
         val_horizon = min(step, len(validation))
         val_exog = align_exog(build_exog_matrix(validation, exog_cols), step)
-        val_raw, _, _ = run_timefm_prediction(
+        val_raw, _, _ = run_timesfm_prediction(
             model,
             rolling_load,
             rolling_exog,
@@ -376,7 +370,7 @@ def timefm_forecast(
             .reset_index()
         )
         chunk_exog = align_exog(build_exog_matrix(chunk_frame, exog_cols), chunk_horizon)
-        raw, q10, q90 = run_timefm_prediction(
+        raw, q10, q90 = run_timesfm_prediction(
             model,
             rolling_load,
             rolling_exog,
@@ -664,10 +658,10 @@ def lstm_forecast(
     return result
 
 
-def load_timefm_model(repo: str, context_hours: int, max_horizon: int):
+def load_timesfm_model(repo: str, context_hours: int, max_horizon: int):
     key = (repo, int(context_hours), int(max_horizon))
-    if key in _TIMEFM_MODEL_CACHE:
-        return _TIMEFM_MODEL_CACHE[key]
+    if key in _TIMESFM_MODEL_CACHE:
+        return _TIMESFM_MODEL_CACHE[key]
 
     try:
         from timesfm import ForecastConfig, TimesFM_2p5_200M_torch
@@ -678,7 +672,7 @@ def load_timefm_model(repo: str, context_hours: int, max_horizon: int):
             "this Python environment can import it."
         ) from exc
 
-    patch_timefm_hub_kwargs(TimesFM_2p5_200M_torch)
+    patch_timesfm_hub_kwargs(TimesFM_2p5_200M_torch)
     model = TimesFM_2p5_200M_torch.from_pretrained(repo)
     model.compile(
         ForecastConfig(
@@ -689,11 +683,11 @@ def load_timefm_model(repo: str, context_hours: int, max_horizon: int):
             return_backcast=True,
         )
     )
-    _TIMEFM_MODEL_CACHE[key] = model
+    _TIMESFM_MODEL_CACHE[key] = model
     return model
 
 
-def patch_timefm_hub_kwargs(model_cls) -> None:
+def patch_timesfm_hub_kwargs(model_cls) -> None:
     if getattr(model_cls, "_mapf_hub_kwargs_compat", False):
         return
 
@@ -751,7 +745,7 @@ def resolve_torch_device(device: str) -> str:
     return normalized
 
 
-def run_timefm_prediction(
+def run_timesfm_prediction(
     model,
     context_load: np.ndarray,
     exog_context: np.ndarray | None,
@@ -783,7 +777,7 @@ def run_timefm_prediction(
             ) from exc
     else:
         result = model.forecast(horizon=int(horizon), inputs=[ctx])
-    return parse_timefm_result(result, horizon)
+    return parse_timesfm_result(result, horizon)
 
 
 def run_chronos_prediction(
@@ -1070,7 +1064,7 @@ def deterministic_interval(point: np.ndarray, half_width: float) -> tuple[np.nda
     return np.minimum(q10, point_arr), np.maximum(q90, point_arr)
 
 
-def parse_timefm_result(result: Any, horizon: int) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+def parse_timesfm_result(result: Any, horizon: int) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     if isinstance(result, tuple):
         point_out, quantile_out = result
     else:
