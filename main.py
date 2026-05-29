@@ -19,7 +19,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--forecast-model",
         default=None,
-        help="Forecast model: timesfm, chronos, lstm, or seasonal_naive.",
+        help="Forecast model: timesfm, chronos, lstm, or AR.",
     )
     parser.add_argument("--model", default=None, help="Model id, for example openai/gpt-4o-mini.")
     parser.add_argument(
@@ -77,7 +77,7 @@ def main(argv: list[str] | None = None) -> int:
         timesfm_exog_cols=run_config.timesfm_exog_cols,
         timesfm_diurnal_blend_alpha=run_config.timesfm_diurnal_blend_alpha,
         timesfm_roll_actuals=run_config.timesfm_roll_actuals,
-        seasonal_diurnal_blend_alpha=run_config.seasonal_diurnal_blend_alpha,
+        ar_diurnal_blend_alpha=run_config.ar_diurnal_blend_alpha,
         chronos_repo=run_config.chronos_repo,
         chronos_context_hours=run_config.chronos_context_hours,
         chronos_step_horizon=run_config.chronos_step_horizon,

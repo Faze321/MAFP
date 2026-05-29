@@ -7,6 +7,10 @@ from typing import Any
 import pandas as pd
 
 
+PRICE_ERROR_THRESHOLD_RATIO = 0.08
+PRICE_ERROR_THRESHOLD_PCT = PRICE_ERROR_THRESHOLD_RATIO * 100
+
+
 TRACE_COLUMNS = [
     "category",
     "zone_id",
@@ -50,6 +54,8 @@ def write_outputs(
     metrics_md = output_dir / "forecast_metrics.md"
     price_schedule_csv = output_dir / "price_schedule_3h.csv"
     price_schedule_md = output_dir / "price_schedule_3h.md"
+    price_comparison_csv = output_dir / "price_comparison_summary.csv"
+    price_comparison_md = output_dir / "price_comparison_summary.md"
     details_dir = output_dir / "forecast_details"
 
     selected_zones.to_csv(selected_path, index=False)
@@ -60,7 +66,7 @@ def write_outputs(
     trace.to_csv(trace_csv, index=False)
     trace_json.write_text(json.dumps(reports, indent=2, ensure_ascii=False), encoding="utf-8")
     trace_md.write_text(markdown_table(trace), encoding="utf-8")
-    write_price_schedule_outputs(price_schedule_csv, price_schedule_md, reports)
+    write_price_schedule_outputs(price_schedule_csv, price_schedule_md, price_comparison_csv, price_comparison_md, reports)
     metrics = write_forecast_outputs(details_dir, metrics_csv, metrics_md, forecast_results)
 
     outputs = {
@@ -73,6 +79,8 @@ def write_outputs(
         "forecast_metrics_md": metrics_md,
         "price_schedule_3h_csv": price_schedule_csv,
         "price_schedule_3h_md": price_schedule_md,
+        "price_comparison_summary_csv": price_comparison_csv,
+        "price_comparison_summary_md": price_comparison_md,
         "forecast_details_dir": details_dir,
     }
     outputs.update(metrics)
@@ -149,39 +157,133 @@ def write_forecast_outputs(
     return plot_paths
 
 
-def write_price_schedule_outputs(price_schedule_csv: Path, price_schedule_md: Path, reports: list[dict[str, Any]]) -> None:
+def write_price_schedule_outputs(
+    price_schedule_csv: Path,
+    price_schedule_md: Path,
+    price_comparison_csv: Path,
+    price_comparison_md: Path,
+    reports: list[dict[str, Any]],
+) -> None:
     rows = []
     for report in reports:
         for window in report.get("price_change_windows_3h") or []:
             if not isinstance(window, dict):
                 continue
-            rows.append(
-                {
-                    "zone_id": report.get("zone_id"),
-                    "category": report.get("category"),
-                    "window_start": window.get("window_start"),
-                    "window_end": window.get("window_end"),
-                    "sum_predicted_kwh": window.get("sum_predicted_kwh"),
-                    "mean_predicted_kwh": window.get("mean_predicted_kwh"),
-                    "sum_actual_kwh": window.get("sum_actual_kwh"),
-                    "load_stress_level": window.get("load_stress_level") or window.get("grid_stress_level"),
-                    "stress_load_3h_kwh": window.get("stress_load_3h_kwh"),
-                    "actual_load_stress_level": window.get("actual_load_stress_level") or window.get("actual_grid_stress_level"),
-                    "actual_stress_load_3h_kwh": window.get("actual_stress_load_3h_kwh"),
-                    "stress_correct": window.get("stress_correct"),
-                    "stress_missed": window.get("stress_missed"),
-                    "load_3h_q50_kwh": window.get("load_3h_q50_kwh"),
-                    "load_3h_q80_kwh": window.get("load_3h_q80_kwh"),
-                    "load_3h_q95_kwh": window.get("load_3h_q95_kwh"),
-                    "suggested_price_shift_pct": window.get("suggested_price_shift_pct"),
-                    "action_label": window.get("action_label"),
-                    "price_rationale": window.get("price_rationale"),
-                    "source": report.get("source"),
-                }
-            )
+            row = {
+                "zone_id": report.get("zone_id"),
+                "category": report.get("category"),
+                "window_start": window.get("window_start"),
+                "window_end": window.get("window_end"),
+                "sum_predicted_kwh": window.get("sum_predicted_kwh"),
+                "mean_predicted_kwh": window.get("mean_predicted_kwh"),
+                "sum_actual_kwh": window.get("sum_actual_kwh"),
+                "actual_service_price": window.get("mean_service_price"),
+                "mean_energy_price": window.get("mean_energy_price"),
+                "load_stress_level": window.get("load_stress_level") or window.get("grid_stress_level"),
+                "stress_load_3h_kwh": window.get("stress_load_3h_kwh"),
+                "actual_load_stress_level": window.get("actual_load_stress_level") or window.get("actual_grid_stress_level"),
+                "actual_stress_load_3h_kwh": window.get("actual_stress_load_3h_kwh"),
+                "stress_correct": window.get("stress_correct"),
+                "stress_missed": window.get("stress_missed"),
+                "load_3h_q50_kwh": window.get("load_3h_q50_kwh"),
+                "load_3h_q80_kwh": window.get("load_3h_q80_kwh"),
+                "load_3h_q95_kwh": window.get("load_3h_q95_kwh"),
+                "suggested_price_shift_pct": window.get("suggested_price_shift_pct"),
+                "action_label": window.get("action_label"),
+                "price_rationale": window.get("price_rationale"),
+                "source": report.get("source"),
+            }
+            row.update(price_comparison_fields(row["actual_service_price"], row["suggested_price_shift_pct"]))
+            rows.append(row)
     frame = pd.DataFrame(rows)
     frame.to_csv(price_schedule_csv, index=False)
     price_schedule_md.write_text(markdown_table(frame), encoding="utf-8")
+    summary = build_price_comparison_summary(frame)
+    summary.to_csv(price_comparison_csv, index=False)
+    price_comparison_md.write_text(markdown_table(summary), encoding="utf-8")
+
+
+def price_comparison_fields(actual_price: Any, shift_pct: Any) -> dict[str, Any]:
+    actual = optional_float(actual_price)
+    shift = optional_float(shift_pct)
+    if actual is None or shift is None:
+        return {
+            "adjusted_service_price": None,
+            "adjusted_minus_actual_service_price": None,
+            "adjusted_vs_actual_pct": None,
+        }
+    adjusted = actual * (1 + shift / 100)
+    diff = adjusted - actual
+    return {
+        "adjusted_service_price": round(adjusted, 4),
+        "adjusted_minus_actual_service_price": round(diff, 4),
+        "adjusted_vs_actual_pct": round((diff / actual) * 100, 4) if actual != 0 else None,
+    }
+
+
+def build_price_comparison_summary(frame: pd.DataFrame) -> pd.DataFrame:
+    columns = [
+        "zone_id",
+        "category",
+        "price_windows",
+        "price_error_threshold_pct",
+        "price_pass_windows",
+        "price_accuracy",
+        "avg_actual_service_price",
+        "avg_adjusted_service_price",
+        "avg_adjusted_minus_actual_service_price",
+        "avg_adjusted_vs_actual_pct",
+    ]
+    if frame.empty or "adjusted_service_price" not in frame:
+        return pd.DataFrame(columns=columns)
+
+    numeric_columns = [
+        "actual_service_price",
+        "adjusted_service_price",
+        "adjusted_minus_actual_service_price",
+        "adjusted_vs_actual_pct",
+    ]
+    working = frame.copy()
+    for column in numeric_columns:
+        working[column] = pd.to_numeric(working[column], errors="coerce")
+    working = working.dropna(subset=["actual_service_price", "adjusted_service_price"])
+    if working.empty:
+        return pd.DataFrame(columns=columns)
+
+    rows = []
+    for (zone_id, category), group in working.groupby(["zone_id", "category"], dropna=False):
+        rows.append(price_summary_row(zone_id, category, group))
+    return pd.DataFrame(rows, columns=columns)
+
+
+def price_summary_row(zone_id: Any, category: Any, group: pd.DataFrame) -> dict[str, Any]:
+    return {
+        "zone_id": zone_id,
+        "category": category,
+        "price_windows": int(len(group)),
+        "price_error_threshold_pct": PRICE_ERROR_THRESHOLD_PCT,
+        "price_pass_windows": int(price_pass_mask(group).sum()),
+        "price_accuracy": round(float(price_pass_mask(group).mean()), 4),
+        "avg_actual_service_price": round(float(group["actual_service_price"].mean()), 4),
+        "avg_adjusted_service_price": round(float(group["adjusted_service_price"].mean()), 4),
+        "avg_adjusted_minus_actual_service_price": round(float(group["adjusted_minus_actual_service_price"].mean()), 4),
+        "avg_adjusted_vs_actual_pct": round(float(group["adjusted_vs_actual_pct"].mean()), 4),
+    }
+
+
+def price_pass_mask(group: pd.DataFrame) -> pd.Series:
+    threshold = group["actual_service_price"].abs() * PRICE_ERROR_THRESHOLD_RATIO
+    return group["adjusted_minus_actual_service_price"].abs() <= threshold
+
+
+def optional_float(value: Any) -> float | None:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    if pd.isna(number):
+        return None
+    return number
 
 
 def write_zone_plot(path: Path, summary: dict[str, Any], hourly: pd.DataFrame) -> None:

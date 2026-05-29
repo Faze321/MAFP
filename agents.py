@@ -296,6 +296,7 @@ def build_heuristic_price_windows(
     windows = context.get("pricing_windows_3h") or []
     averages = context.get("hourly_averages") or {}
     mean_load = as_float(averages.get("mean_predicted_kwh"), 0)
+    mean_service_price = as_float(averages.get("mean_service_price"), 0)
     mean_energy_price = as_float(averages.get("mean_energy_price"), 0)
     stress = normalize_grid_stress_level(grid.get("grid_stress_level"), context.get("grid_stress_level"))
     category = str(context.get("category") or "")
@@ -308,6 +309,7 @@ def build_heuristic_price_windows(
         )
         window_base_shift, _ = base_price_shift(window_stress, category, change)
         window_load = as_float(window.get("mean_predicted_kwh"), mean_load)
+        window_service_price = as_float(window.get("mean_service_price"), mean_service_price)
         window_energy_price = as_float(window.get("mean_energy_price"), mean_energy_price)
         adjustment = 0
         if mean_load > 0:
@@ -336,6 +338,8 @@ def build_heuristic_price_windows(
                 "sum_predicted_kwh": window.get("sum_predicted_kwh"),
                 "mean_predicted_kwh": window.get("mean_predicted_kwh"),
                 "sum_actual_kwh": window.get("sum_actual_kwh"),
+                "mean_service_price": window.get("mean_service_price"),
+                "mean_energy_price": window.get("mean_energy_price"),
                 "load_stress_level": window.get("load_stress_level") or window.get("grid_stress_level"),
                 "stress_load_3h_kwh": window.get("stress_load_3h_kwh"),
                 "actual_load_stress_level": window.get("actual_load_stress_level") or window.get("actual_grid_stress_level"),
@@ -349,7 +353,7 @@ def build_heuristic_price_windows(
                 "action_label": label,
                 "price_rationale": (
                     f"{window_stress} 3-hour stress; mean load {window_load:.2f} kWh "
-                    f"vs horizon mean {mean_load:.2f} kWh."
+                    f"vs horizon mean {mean_load:.2f} kWh; service price {window_service_price:.2f}."
                 ),
             }
         )
@@ -369,6 +373,8 @@ def normalize_price_windows(value: Any, fallback_windows: list[dict[str, Any]]) 
                 "sum_predicted_kwh": fallback.get("sum_predicted_kwh"),
                 "mean_predicted_kwh": fallback.get("mean_predicted_kwh"),
                 "sum_actual_kwh": fallback.get("sum_actual_kwh"),
+                "mean_service_price": fallback.get("mean_service_price"),
+                "mean_energy_price": fallback.get("mean_energy_price"),
                 "load_stress_level": fallback.get("load_stress_level") or fallback.get("grid_stress_level"),
                 "stress_load_3h_kwh": fallback.get("stress_load_3h_kwh"),
                 "actual_load_stress_level": fallback.get("actual_load_stress_level") or fallback.get("actual_grid_stress_level"),

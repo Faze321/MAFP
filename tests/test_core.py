@@ -11,13 +11,13 @@ from agents import extract_json_object, heuristic_behavior, heuristic_economist,
 from config import AgentConfig, AppConfig, RunConfig
 from data_loader import available_zone_ids, build_zone_3h_load_quantiles, load_pipeline_data
 from forecasting import (
+    ar_forecast,
     build_zone_model_frame,
     chronos_forecast,
     compute_forecast_metrics,
     lstm_forecast,
     patch_timesfm_hub_kwargs,
     rebuild_quantile_interval,
-    seasonal_naive_forecast,
 )
 from orchestrator import (
     apply_load_quantile_stress,
@@ -30,6 +30,7 @@ from orchestrator import (
     select_requested_zones,
 )
 from prompts import grid_prompt
+from reporting import build_price_comparison_summary, price_comparison_fields
 from zone_selection import select_zone_categories
 
 
@@ -149,7 +150,7 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(config.run.forecast_model, "timesfm")
         self.assertEqual(config.run.timesfm_repo, "google/timesfm-2.5-200m-pytorch")
         self.assertEqual(config.run.timesfm_exog_cols[:4], ["T", "U", "nRAIN", "e_price"])
-        self.assertEqual(config.run.seasonal_diurnal_blend_alpha, 0.0)
+        self.assertEqual(config.run.ar_diurnal_blend_alpha, 0.0)
         self.assertEqual(config.run.chronos_repo, "amazon/chronos-2")
         self.assertEqual(config.run.chronos_context_hours, 512)
         self.assertEqual(config.run.chronos_diurnal_blend_alpha, 0.0)
@@ -198,14 +199,14 @@ class ForecastingTests(unittest.TestCase):
         self.assertNotIn("resume_download", FakeTimesFM.seen_kwargs)
         self.assertEqual(FakeTimesFM.seen_kwargs["config"], {"model": "fake"})
 
-    def test_seasonal_forecast_keeps_hourly_horizon(self):
+    def test_ar_forecast_keeps_hourly_horizon(self):
         history = pd.DataFrame(
             {
                 "time": pd.date_range("2023-01-01", periods=24 * 7, freq="h"),
                 "actual_kwh": [float(hour % 24) for hour in range(24 * 7)],
             }
         )
-        result = seasonal_naive_forecast(history, pd.Timestamp("2023-01-08"), 48)
+        result = ar_forecast(history, pd.Timestamp("2023-01-08"), 48)
         self.assertEqual(len(result), 48)
         self.assertIn("predicted_kwh", result)
         self.assertGreater(result["predicted_kwh"].sum(), 0)
@@ -339,6 +340,47 @@ class ForecastingTests(unittest.TestCase):
 
 
 class SelectionTests(unittest.TestCase):
+    def test_builds_price_comparison_fields_and_summary(self):
+        fields = price_comparison_fields(1.0, 10)
+        self.assertEqual(fields["adjusted_service_price"], 1.1)
+        self.assertEqual(fields["adjusted_minus_actual_service_price"], 0.1)
+        self.assertEqual(fields["adjusted_vs_actual_pct"], 10.0)
+        self.assertNotIn("abs_adjusted_minus_actual_service_price", fields)
+
+        summary = build_price_comparison_summary(
+            pd.DataFrame(
+                [
+                    {
+                        "zone_id": "102",
+                        "category": "User-selected",
+                        "actual_service_price": 1.0,
+                        "adjusted_service_price": 1.05,
+                        "adjusted_minus_actual_service_price": 0.05,
+                        "adjusted_vs_actual_pct": 5.0,
+                    },
+                    {
+                        "zone_id": "102",
+                        "category": "User-selected",
+                        "actual_service_price": 2.0,
+                        "adjusted_service_price": 1.8,
+                        "adjusted_minus_actual_service_price": -0.2,
+                        "adjusted_vs_actual_pct": -10.0,
+                    },
+                ]
+            )
+        )
+        self.assertNotIn("ALL", summary["zone_id"].tolist())
+        self.assertNotIn("avg_abs_adjusted_minus_actual_service_price", summary.columns)
+        zone_summary = summary[summary["zone_id"] == "102"].iloc[0]
+        self.assertEqual(zone_summary["price_windows"], 2)
+        self.assertEqual(zone_summary["price_error_threshold_pct"], 8.0)
+        self.assertEqual(zone_summary["price_pass_windows"], 1)
+        self.assertAlmostEqual(zone_summary["price_accuracy"], 0.5)
+        self.assertAlmostEqual(zone_summary["avg_actual_service_price"], 1.5)
+        self.assertAlmostEqual(zone_summary["avg_adjusted_service_price"], 1.425)
+        self.assertAlmostEqual(zone_summary["avg_adjusted_minus_actual_service_price"], -0.075)
+        self.assertAlmostEqual(zone_summary["avg_adjusted_vs_actual_pct"], -2.5)
+
     def test_builds_hourly_agent_context_and_three_hour_windows(self):
         hourly = pd.DataFrame(
             {
@@ -439,10 +481,7 @@ class SelectionTests(unittest.TestCase):
         self.assertEqual(forecast_output_dir(Path("output"), "chronos"), Path("output") / "chronos")
         self.assertEqual(forecast_output_dir(Path("output"), "lstm"), Path("output") / "lstm")
         self.assertEqual(forecast_output_dir(Path("output"), "timesfm"), Path("output") / "timesfm")
-        self.assertEqual(
-            forecast_output_dir(Path("output"), "seasonal-naive"),
-            Path("output") / "seasonal_naive",
-        )
+        self.assertEqual(forecast_output_dir(Path("output"), "AR"), Path("output") / "AR")
 
     def test_normalizes_requested_zone_ids(self):
         zone_ids = normalize_zone_ids(["102,104", " 108 ", "104"])

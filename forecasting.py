@@ -51,7 +51,7 @@ def forecast_zone(
     timesfm_exog_cols: list[str] | None = None,
     timesfm_diurnal_blend_alpha: float = 1.0,
     timesfm_roll_actuals: bool = True,
-    seasonal_diurnal_blend_alpha: float = 0.0,
+    ar_diurnal_blend_alpha: float = 0.0,
     chronos_repo: str = "amazon/chronos-2",
     chronos_context_hours: int = 512,
     chronos_step_horizon: int = 24,
@@ -104,7 +104,7 @@ def forecast_zone(
         timesfm_exog_cols=timesfm_exog_cols or DEFAULT_TIMESFM_EXOG_COLS,
         timesfm_diurnal_blend_alpha=timesfm_diurnal_blend_alpha,
         timesfm_roll_actuals=timesfm_roll_actuals,
-        seasonal_diurnal_blend_alpha=seasonal_diurnal_blend_alpha,
+        ar_diurnal_blend_alpha=ar_diurnal_blend_alpha,
         chronos_repo=chronos_repo,
         chronos_context_hours=chronos_context_hours,
         chronos_step_horizon=chronos_step_horizon,
@@ -176,7 +176,7 @@ def forecast_zone(
         "timesfm_covariates": (timesfm_exog_cols or DEFAULT_TIMESFM_EXOG_COLS) if normalized_model == "timesfm" else None,
         "timesfm_diurnal_blend_alpha": round(float(timesfm_diurnal_blend_alpha), 4) if normalized_model == "timesfm" else None,
         "timesfm_roll_actuals": bool(timesfm_roll_actuals) if normalized_model == "timesfm" else None,
-        "seasonal_diurnal_blend_alpha": round(float(seasonal_diurnal_blend_alpha), 4) if normalized_model in {"seasonal", "seasonal_naive", "naive"} else None,
+        "ar_diurnal_blend_alpha": round(float(ar_diurnal_blend_alpha), 4) if normalized_model == "AR" else None,
         "chronos_repo": chronos_repo if normalized_model.startswith("chronos") else None,
         "chronos_context_hours": int(chronos_context_hours) if normalized_model.startswith("chronos") else None,
         "chronos_step_horizon": int(chronos_step_horizon) if normalized_model.startswith("chronos") else None,
@@ -234,7 +234,7 @@ def forecast_load(
     timesfm_exog_cols: list[str],
     timesfm_diurnal_blend_alpha: float,
     timesfm_roll_actuals: bool,
-    seasonal_diurnal_blend_alpha: float,
+    ar_diurnal_blend_alpha: float,
     chronos_repo: str,
     chronos_context_hours: int,
     chronos_step_horizon: int,
@@ -255,12 +255,12 @@ def forecast_load(
     lstm_seed: int,
 ) -> pd.DataFrame:
     normalized = normalize_forecast_model_name(model_name)
-    if normalized in {"seasonal", "seasonal_naive", "naive"}:
-        return seasonal_naive_forecast(
+    if normalized == "AR":
+        return ar_forecast(
             history,
             forecast_start,
             horizon_hours,
-            diurnal_blend_alpha=seasonal_diurnal_blend_alpha,
+            diurnal_blend_alpha=ar_diurnal_blend_alpha,
         )
     if normalized == "timesfm":
         return timesfm_forecast(
@@ -1275,7 +1275,7 @@ def compute_forecast_metrics(hourly: pd.DataFrame) -> dict[str, float | None]:
     }
 
 
-def seasonal_naive_forecast(
+def ar_forecast(
     history: pd.DataFrame,
     forecast_start: pd.Timestamp,
     horizon_hours: int,
@@ -1285,9 +1285,9 @@ def seasonal_naive_forecast(
     hist = history.set_index("time")["actual_kwh"].astype(float).sort_index()
     target_index = pd.date_range(forecast_start, periods=horizon_hours, freq="h")
     hourly_mean = hist.groupby(hist.index.hour).mean()
-    seasonal_values = hist.reindex(target_index - pd.Timedelta(days=7)).to_numpy()
+    autoregressive_values = hist.reindex(target_index - pd.Timedelta(days=7)).to_numpy()
     fallback = np.array([hourly_mean.loc[t.hour] for t in target_index], dtype=float)
-    predicted = np.where(np.isnan(seasonal_values), fallback, 0.72 * seasonal_values + 0.28 * fallback)
+    predicted = np.where(np.isnan(autoregressive_values), fallback, 0.72 * autoregressive_values + 0.28 * fallback)
 
     last_24 = hist.tail(24).sum()
     mean_daily = hist.resample("D").sum().mean()

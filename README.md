@@ -48,13 +48,14 @@ python main.py --dry-run --zones 102,104,108 --horizon-days 1
 python main.py --dry-run --zones 102 --weather-file weather_central.csv --forecast-start "2022-09-09 00:00:00" --horizon-days 6
 python main.py --dry-run --forecast-model chronos
 python main.py --dry-run --forecast-model lstm
+python main.py --dry-run --forecast-model AR
 python main.py --config config.yaml --model anthropic/claude-sonnet-4.5 --forecast-start "2023-02-25 00:00:00"
 python main.py --force-cache
 ```
 
 Runtime defaults can be stored under `run:` in `config.yaml`, so common settings do not need to be typed each time. Command-line options override YAML values only for that run. When `run.zones` / `--zones` is omitted, the pipeline keeps the original five-category automatic zone selection. When zones are provided, the pipeline skips category selection and validates only the specified zone ids.
 
-Set `run.forecast_model: "timesfm"` to use `google/timesfm-2.5-200m-pytorch` for load forecasting. Set `run.forecast_model: "lstm"` to train a small local PyTorch LSTM per zone. Set `run.forecast_model: "seasonal_naive"` for a fast baseline run without TimesFM.
+Set `run.forecast_model: "timesfm"` to use `google/timesfm-2.5-200m-pytorch` for load forecasting. Set `run.forecast_model: "lstm"` to train a small local PyTorch LSTM per zone. Set `run.forecast_model: "AR"` for a fast autoregressive baseline run without TimesFM.
 Set `run.forecast_model: "chronos"` to use Chronos. The default Chronos config uses `amazon/chronos-2`, rolls actual observations into the context during retrospective multi-day evaluation, and exports the same `predicted_kwh`, `q10_kwh`, `q50_kwh`, and `q90_kwh` columns as TimesFM.
 
 The TimesFM path now follows the `zone102_timefm1.ipynb` workflow:
@@ -66,7 +67,7 @@ The TimesFM path now follows the `zone102_timefm1.ipynb` workflow:
 - `run.timesfm_diurnal_blend_alpha` blends the TimesFM point forecast with the recent hourly load profile. `1.0` matches the notebook setting; `0.0` disables the blend.
 - `run.timesfm_roll_actuals: true` rolls known actual values into the context during multi-day validation/forecast steps.
 
-The same daily-shape blend is available for the other forecasting methods through `run.chronos_diurnal_blend_alpha`, `run.lstm_diurnal_blend_alpha`, and `run.seasonal_diurnal_blend_alpha`. Their defaults are `0.0`, so existing Chronos, LSTM, and seasonal-naive results do not change unless you opt in.
+The same daily-shape blend is available for the other forecasting methods through `run.chronos_diurnal_blend_alpha`, `run.lstm_diurnal_blend_alpha`, and `run.ar_diurnal_blend_alpha`. Their defaults are `0.0`, so existing Chronos, LSTM, and AR results do not change unless you opt in.
 
 The first TimesFM run may download model weights from Hugging Face. The dependency list installs TimesFM from the official `google-research/timesfm` repository, plus `torch`, `jax`/`jaxlib`, and `scikit-learn` for the PyTorch model class and covariate regression path.
 
@@ -74,7 +75,7 @@ The LSTM path uses the existing `torch` installation and trains only on the sele
 
 ## Outputs
 
-Generated result files are written under a forecast-model subfolder, for example `output/timesfm/`, `output/chronos/`, `output/lstm/`, or `output/seasonal_naive/`:
+Generated result files are written under a forecast-model subfolder, for example `output/timesfm/`, `output/chronos/`, `output/lstm/`, or `output/AR/`:
 
 - `selected_zones.csv`: the five selected zones and the proxy features used for selection.
 - `context_snippets.json`: token-efficient context passed to each agent.

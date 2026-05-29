@@ -25,7 +25,7 @@ class RunConfig:
     timesfm_exog_cols: list[str] | None = None
     timesfm_diurnal_blend_alpha: float = 1.0
     timesfm_roll_actuals: bool = True
-    seasonal_diurnal_blend_alpha: float = 0.0
+    ar_diurnal_blend_alpha: float = 0.0
     chronos_repo: str = "amazon/chronos-2"
     chronos_context_hours: int = 512
     chronos_step_horizon: int = 24
@@ -58,7 +58,7 @@ class RunConfig:
         timesfm_diurnal_blend_alpha = optional_float(
             settings.get("timesfm_diurnal_blend_alpha")
         )
-        seasonal_diurnal_blend_alpha = optional_float(settings.get("seasonal_diurnal_blend_alpha"))
+        ar_diurnal_blend_alpha = optional_float(settings.get("ar_diurnal_blend_alpha"))
         chronos_context_hours = optional_int(settings.get("chronos_context_hours"))
         chronos_step_horizon = optional_int(settings.get("chronos_step_horizon"))
         chronos_diurnal_blend_alpha = optional_float(settings.get("chronos_diurnal_blend_alpha"))
@@ -94,9 +94,7 @@ class RunConfig:
                 timesfm_diurnal_blend_alpha if timesfm_diurnal_blend_alpha is not None else 1.0
             ),
             timesfm_roll_actuals=optional_bool(settings.get("timesfm_roll_actuals"), True),
-            seasonal_diurnal_blend_alpha=(
-                seasonal_diurnal_blend_alpha if seasonal_diurnal_blend_alpha is not None else 0.0
-            ),
+            ar_diurnal_blend_alpha=ar_diurnal_blend_alpha if ar_diurnal_blend_alpha is not None else 0.0,
             chronos_repo=optional_str(settings.get("chronos_repo")) or "amazon/chronos-2",
             chronos_context_hours=chronos_context_hours if chronos_context_hours is not None else 512,
             chronos_step_horizon=chronos_step_horizon if chronos_step_horizon is not None else 24,
@@ -326,7 +324,8 @@ def optional_str(value: Any) -> str | None:
 
 
 def normalize_forecast_model_name(value: str | None) -> str:
-    return (value or "timesfm").strip().lower().replace("-", "_")
+    normalized = (value or "timesfm").strip().lower().replace("-", "_")
+    return "AR" if normalized == "ar" else normalized
 
 
 def optional_int(value: Any) -> int | None:
