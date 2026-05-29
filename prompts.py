@@ -35,7 +35,7 @@ def grid_prompt(context: dict[str, Any]) -> str:
 def behavior_prompt(context: dict[str, Any], grid_report: dict[str, Any]) -> str:
     horizon = horizon_label(context)
     return (
-        f"""Phase A / Behavioural Agent.
+        f"""Phase B / Behavioural Agent.
 
         Task: explain why demand looks this way over the next {horizon} using POI mix, weather, temporal markers, hourly forecast data, 3-hour pricing windows, and the load shape. Keep it specific and short.
 
@@ -53,7 +53,7 @@ def economist_prompt(
 ) -> str:
     horizon = horizon_label(context)
     return (
-        f"""Phase B / Market Economist.
+        f"""Phase C / Market Economist.
         
         Task: prescribe service-fee shifts for the next {horizon} using each 3-hour window's load_stress_level, category, hourly forecast data, and the provided 3-hour pricing windows. Residential users are more price-sensitive; CBD and hub users are less price-sensitive. Avoid extreme changes.
 

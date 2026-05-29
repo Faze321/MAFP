@@ -20,6 +20,7 @@ from forecasting import (
     seasonal_naive_forecast,
 )
 from orchestrator import (
+    apply_load_quantile_stress,
     build_agent_hourly_data,
     build_hourly_averages,
     build_pricing_windows_3h,
@@ -343,7 +344,7 @@ class SelectionTests(unittest.TestCase):
             {
                 "time": pd.date_range("2022-09-09", periods=6, freq="h"),
                 "predicted_kwh": [10, 12, 14, 8, 6, 7],
-                "actual_kwh": [11, 11, 13, 9, 5, 8],
+                "actual_kwh": [14, 14, 14, 9, 5, 8],
                 "s_price": [0.7, 0.7, 0.8, 0.8, 0.6, 0.6],
                 "e_price": [1.0, 1.1, 1.2, 0.9, 0.8, 0.8],
                 "occupancy": [0.2, 0.3, 0.4, 0.2, 0.1, 0.1],
@@ -366,6 +367,21 @@ class SelectionTests(unittest.TestCase):
         self.assertEqual(len(windows), 2)
         self.assertEqual(windows[0]["sum_predicted_kwh"], 36.0)
         self.assertEqual(windows[0]["load_stress_level"], "High")
+        self.assertEqual(windows[0]["sum_actual_kwh"], 42.0)
+        self.assertEqual(windows[0]["actual_load_stress_level"], "Extreme High")
+        self.assertFalse(windows[0]["stress_correct"])
+        self.assertTrue(windows[0]["stress_missed"])
+        summary = apply_load_quantile_stress(
+            {"forecast_peak_kwh": 14.0},
+            {"available": True, "q50": 25.0, "q80": 35.0, "q95": 40.0},
+            windows,
+        )
+        self.assertEqual(summary["grid_stress_level"], "High")
+        self.assertEqual(summary["actual_grid_stress_level"], "Extreme High")
+        self.assertEqual(summary["stress_eval_windows"], 2)
+        self.assertEqual(summary["stress_miss_count"], 1)
+        self.assertAlmostEqual(summary["stress_accuracy"], 0.5)
+        self.assertAlmostEqual(summary["miss_stress_rate"], 0.5)
 
     def test_caches_zone_three_hour_load_quantiles_from_volume_csv(self):
         with tempfile.TemporaryDirectory() as temp_dir:

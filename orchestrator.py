@@ -15,6 +15,9 @@ from reporting import safe_filename, write_outputs
 from zone_selection import select_zone_categories
 
 
+STRESS_LEVEL_ORDER = {"Low": 0, "Medium": 1, "High": 2, "Extreme High": 3}
+
+
 def run_pipeline(
     *,
     data_dir: Path,
@@ -310,7 +313,48 @@ def apply_load_quantile_stress(
     updated["grid_stress_q50_kwh"] = thresholds.get("q50", 0.0)
     updated["grid_stress_q80_kwh"] = thresholds.get("q80", 0.0)
     updated["grid_stress_q95_kwh"] = thresholds.get("q95", 0.0)
+    updated.update(stress_evaluation_metrics(pricing_windows_3h))
     return updated
+
+
+def stress_evaluation_metrics(pricing_windows_3h: list[dict[str, Any]]) -> dict[str, Any]:
+    evaluated_windows = []
+    for window in pricing_windows_3h:
+        predicted_rank = stress_rank(window.get("load_stress_level") or window.get("grid_stress_level"))
+        actual_rank = stress_rank(window.get("actual_load_stress_level") or window.get("actual_grid_stress_level"))
+        if predicted_rank is None or actual_rank is None:
+            continue
+        evaluated_windows.append((window, predicted_rank, actual_rank))
+
+    if not evaluated_windows:
+        return {
+            "actual_grid_stress_level": None,
+            "actual_grid_stress_load_kwh": None,
+            "stress_accuracy": None,
+            "miss_stress_rate": None,
+            "stress_eval_windows": 0,
+            "stress_miss_count": None,
+        }
+
+    correct_count = sum(1 for _, predicted_rank, actual_rank in evaluated_windows if predicted_rank == actual_rank)
+    miss_count = sum(1 for _, predicted_rank, actual_rank in evaluated_windows if actual_rank > predicted_rank)
+    actual_levels = [
+        window.get("actual_load_stress_level") or window.get("actual_grid_stress_level")
+        for window, _, _ in evaluated_windows
+    ]
+    actual_loads = [
+        safe_float(window.get("actual_stress_load_3h_kwh") or window.get("sum_actual_kwh"))
+        for window, _, _ in evaluated_windows
+    ]
+    total = len(evaluated_windows)
+    return {
+        "actual_grid_stress_level": max_stress_level(actual_levels),
+        "actual_grid_stress_load_kwh": max(actual_loads) if actual_loads else None,
+        "stress_accuracy": round(correct_count / total, 4),
+        "miss_stress_rate": round(miss_count / total, 4),
+        "stress_eval_windows": total,
+        "stress_miss_count": miss_count,
+    }
 
 
 def build_agent_hourly_data(hourly: pd.DataFrame) -> list[dict[str, Any]]:
@@ -406,9 +450,22 @@ def build_pricing_windows_3h(
         if stress_thresholds is not None:
             stress_load = window.get("sum_predicted_kwh")
             stress_level = classify_load_stress(stress_load, stress_thresholds)
+            actual_stress_load = window.get("sum_actual_kwh")
+            actual_stress_level = (
+                classify_load_stress(actual_stress_load, stress_thresholds)
+                if actual_stress_load is not None
+                else None
+            )
             window["load_stress_level"] = stress_level
             window["grid_stress_level"] = stress_level
             window["stress_load_3h_kwh"] = clean_context_value(stress_load)
+            window["actual_load_stress_level"] = actual_stress_level
+            window["actual_grid_stress_level"] = actual_stress_level
+            window["actual_stress_load_3h_kwh"] = clean_context_value(actual_stress_load)
+            predicted_rank = stress_rank(stress_level)
+            actual_rank = stress_rank(actual_stress_level)
+            window["stress_correct"] = predicted_rank == actual_rank if actual_rank is not None else None
+            window["stress_missed"] = actual_rank > predicted_rank if actual_rank is not None and predicted_rank is not None else None
             window["stress_source_file"] = stress_thresholds.get("source_file", "volume.csv")
             window["stress_window_hours"] = stress_thresholds.get("window_hours", 3)
             window["load_3h_q50_kwh"] = stress_thresholds.get("q50", 0.0)
@@ -452,11 +509,14 @@ def safe_float(value: Any) -> float:
 
 
 def max_stress_level(levels: list[Any]) -> str:
-    order = {"Low": 0, "Medium": 1, "High": 2, "Extreme High": 3}
-    normalized = [str(level) for level in levels if level in order]
+    normalized = [str(level) for level in levels if stress_rank(level) is not None]
     if not normalized:
         return "Low"
-    return max(normalized, key=lambda level: order[level])
+    return max(normalized, key=lambda level: STRESS_LEVEL_ORDER[level])
+
+
+def stress_rank(level: Any) -> int | None:
+    return STRESS_LEVEL_ORDER.get(str(level))
 
 
 def format_horizon_days(value: Any) -> str:
