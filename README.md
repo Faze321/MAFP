@@ -3,7 +3,7 @@
 This project implements the conference-work requirement in `Conference work.docx`:
 
 1. Select five UrbanEV zones that behave like CBD/office, residential, transport hub, commercial/mall, and industrial demand profiles.
-2. Build compact context snippets from `volume-11kW.csv`, a configurable weather file, `poi.csv`, `inf.csv`, `occupancy.csv`, and `s_price.csv`.
+2. Build compact context snippets from `volume.csv`, a configurable weather file, `poi.csv`, `inf.csv`, `occupancy.csv`, and `s_price.csv`.
 3. Run a sequential multi-agent chain per zone:
    - Grid Analyst: forecast 1-4 days of load and assign a grid stress level.
    - Behavioural Agent: explain the demand drivers from POI mix, weather, and time markers.
@@ -108,8 +108,8 @@ The POI file in this release contains only three broad POI labels: `food and bev
 * `inf_raw.csv`: All station-level data for the same 275 zones, including coordinates, charging capacities, area (Unit: m^2), and perimeter (Unit: m).
 * `occupancy.csv`: Hourly EV charging occupancy rate (Unit: %).
 * `s_price.csv`: Service price (Unit: Yuan/kWh).
-* `volume.csv`: Hourly EV charging volume (Unit: kWh). The volume in *volume.csv* is derived from the rated power of charging piles
-* `volume-11kW.csv` provides an alternative vehicle-side estimation of charging volume to mitigate potential overestimation in `volume.csv`. Specifically, for direct current charging stations, the volume is calculated using the standard power of the most commonly used electric vehicle, Tesla Model Y (11kW), instead of the rated power of the charging pile.
+* `volume.csv`: Hourly EV charging volume (Unit: kWh). The pipeline uses this file as the project-wide load source. The volume in *volume.csv* is derived from the rated power of charging piles.
+* `volume-11kW.csv`: Alternative vehicle-side estimation of charging volume to mitigate potential overestimation in `volume.csv`. It is kept in the data folder for reference, but it is not used by the pipeline by default.
 * `weather_airport.csv`: Weather data from the meteorological station at Bao'an Airport (Shenzhen). These are the raw data collected, and it is recommended to use the **Max-Min** method for normalization.
 * `weather_central.csv`: Weather data from Futian Meteorological Station in the city center of Shenzhen.
 * `weather_header.txt`: Descriptions of the table headers in `weather_airport.csv` and `weather_central.csv`.

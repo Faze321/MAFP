@@ -43,6 +43,8 @@ def write_outputs(
     trace_json = output_dir / "rationale_trace.json"
     metrics_csv = output_dir / "forecast_metrics.csv"
     metrics_md = output_dir / "forecast_metrics.md"
+    price_schedule_csv = output_dir / "price_schedule_3h.csv"
+    price_schedule_md = output_dir / "price_schedule_3h.md"
     details_dir = output_dir / "forecast_details"
 
     selected_zones.to_csv(selected_path, index=False)
@@ -53,6 +55,7 @@ def write_outputs(
     trace.to_csv(trace_csv, index=False)
     trace_json.write_text(json.dumps(reports, indent=2, ensure_ascii=False), encoding="utf-8")
     trace_md.write_text(markdown_table(trace), encoding="utf-8")
+    write_price_schedule_outputs(price_schedule_csv, price_schedule_md, reports)
     metrics = write_forecast_outputs(details_dir, metrics_csv, metrics_md, forecast_results)
 
     outputs = {
@@ -63,6 +66,8 @@ def write_outputs(
         "rationale_trace_json": trace_json,
         "forecast_metrics_csv": metrics_csv,
         "forecast_metrics_md": metrics_md,
+        "price_schedule_3h_csv": price_schedule_csv,
+        "price_schedule_3h_md": price_schedule_md,
         "forecast_details_dir": details_dir,
     }
     outputs.update(metrics)
@@ -116,6 +121,14 @@ def write_forecast_outputs(
                 "forecast_peak_kwh": result.summary.get("forecast_peak_kwh"),
                 "actual_peak_kwh": result.summary.get("actual_peak_kwh"),
                 "grid_stress_level": result.summary.get("grid_stress_level"),
+                "grid_stress_basis": result.summary.get("grid_stress_basis"),
+                "grid_stress_load_kwh": result.summary.get("grid_stress_load_kwh"),
+                "grid_stress_source_file": result.summary.get("grid_stress_source_file"),
+                "grid_stress_window_hours": result.summary.get("grid_stress_window_hours"),
+                "grid_stress_historical_windows": result.summary.get("grid_stress_historical_windows"),
+                "grid_stress_q50_kwh": result.summary.get("grid_stress_q50_kwh"),
+                "grid_stress_q80_kwh": result.summary.get("grid_stress_q80_kwh"),
+                "grid_stress_q95_kwh": result.summary.get("grid_stress_q95_kwh"),
             }
         )
 
@@ -125,6 +138,36 @@ def write_forecast_outputs(
     return plot_paths
 
 
+def write_price_schedule_outputs(price_schedule_csv: Path, price_schedule_md: Path, reports: list[dict[str, Any]]) -> None:
+    rows = []
+    for report in reports:
+        for window in report.get("price_change_windows_3h") or []:
+            if not isinstance(window, dict):
+                continue
+            rows.append(
+                {
+                    "zone_id": report.get("zone_id"),
+                    "category": report.get("category"),
+                    "window_start": window.get("window_start"),
+                    "window_end": window.get("window_end"),
+                    "sum_predicted_kwh": window.get("sum_predicted_kwh"),
+                    "mean_predicted_kwh": window.get("mean_predicted_kwh"),
+                    "load_stress_level": window.get("load_stress_level") or window.get("grid_stress_level"),
+                    "stress_load_3h_kwh": window.get("stress_load_3h_kwh"),
+                    "load_3h_q50_kwh": window.get("load_3h_q50_kwh"),
+                    "load_3h_q80_kwh": window.get("load_3h_q80_kwh"),
+                    "load_3h_q95_kwh": window.get("load_3h_q95_kwh"),
+                    "suggested_price_shift_pct": window.get("suggested_price_shift_pct"),
+                    "action_label": window.get("action_label"),
+                    "price_rationale": window.get("price_rationale"),
+                    "source": report.get("source"),
+                }
+            )
+    frame = pd.DataFrame(rows)
+    frame.to_csv(price_schedule_csv, index=False)
+    price_schedule_md.write_text(markdown_table(frame), encoding="utf-8")
+
+
 def write_zone_plot(path: Path, summary: dict[str, Any], hourly: pd.DataFrame) -> None:
     try:
         import matplotlib
@@ -132,6 +175,7 @@ def write_zone_plot(path: Path, summary: dict[str, Any], hourly: pd.DataFrame) -
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
         import matplotlib.gridspec as gridspec
+        import matplotlib.dates as mdates
     except ModuleNotFoundError as exc:
         raise RuntimeError("matplotlib is required for forecast plots. Install it with: pip install matplotlib") from exc
 
@@ -140,7 +184,7 @@ def write_zone_plot(path: Path, summary: dict[str, Any], hourly: pd.DataFrame) -
     frame["hour_index"] = range(len(frame))
 
     fig = plt.figure(figsize=(16, 9), dpi=140)
-    gs = gridspec.GridSpec(2, 2, height_ratios=[2.2, 1.0], width_ratios=[3.2, 1.0], hspace=0.34, wspace=0.22)
+    gs = gridspec.GridSpec(2, 2, height_ratios=[2.2, 1.0], width_ratios=[3.2, 1.0], hspace=0.46, wspace=0.22)
     ax_main = fig.add_subplot(gs[0, :])
     ax_resid = fig.add_subplot(gs[1, 0])
     ax_metrics = fig.add_subplot(gs[1, 1])
@@ -174,6 +218,7 @@ def write_zone_plot(path: Path, summary: dict[str, Any], hourly: pd.DataFrame) -
         label="Predicted",
     )
     ax_main.set_title(f"Zone {summary.get('zone_id')} Forecast vs Actual", fontsize=15, fontweight="bold")
+    ax_main.set_xlabel("Time")
     ax_main.set_ylabel("Load (kWh)")
     ax_main.grid(axis="y", alpha=0.25)
     ax_main.legend(loc="upper left", frameon=False)
@@ -183,6 +228,7 @@ def write_zone_plot(path: Path, summary: dict[str, Any], hourly: pd.DataFrame) -
     ax_resid.bar(frame["time"], errors, color=colors, width=0.03, alpha=0.82)
     ax_resid.axhline(0, color="#6B7280", lw=0.9)
     ax_resid.set_title("Residuals (Actual - Predicted)", fontsize=11, fontweight="bold")
+    ax_resid.set_xlabel("Time")
     ax_resid.set_ylabel("Error (kWh)")
     ax_resid.grid(axis="y", alpha=0.22)
 
@@ -202,9 +248,13 @@ def write_zone_plot(path: Path, summary: dict[str, Any], hourly: pd.DataFrame) -
         ax_metrics.text(0.98, y, value, fontsize=11, fontweight="bold", ha="right", transform=ax_metrics.transAxes)
 
     for axis in (ax_main, ax_resid):
+        locator = mdates.AutoDateLocator(minticks=5, maxticks=10)
+        formatter = mdates.DateFormatter("%m-%d %H:%M")
+        axis.xaxis.set_major_locator(locator)
+        axis.xaxis.set_major_formatter(formatter)
+        axis.tick_params(axis="x", labelbottom=True)
         axis.tick_params(axis="x", rotation=30)
 
-    fig.autofmt_xdate()
     fig.tight_layout()
     fig.savefig(path, bbox_inches="tight")
     plt.close(fig)

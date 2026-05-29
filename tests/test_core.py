@@ -1,4 +1,5 @@
 import unittest
+import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
@@ -6,8 +7,9 @@ import numpy as np
 import pandas as pd
 import torch
 
-from agents import extract_json_object
+from agents import extract_json_object, heuristic_behavior, heuristic_economist, merge_grid_fallback
 from config import AgentConfig, AppConfig, RunConfig
+from data_loader import available_zone_ids, build_zone_3h_load_quantiles, load_pipeline_data
 from forecasting import (
     build_zone_model_frame,
     chronos_forecast,
@@ -17,7 +19,16 @@ from forecasting import (
     rebuild_quantile_interval,
     seasonal_naive_forecast,
 )
-from orchestrator import forecast_output_dir, normalize_zone_ids, select_requested_zones
+from orchestrator import (
+    build_agent_hourly_data,
+    build_hourly_averages,
+    build_pricing_windows_3h,
+    classify_load_stress,
+    forecast_output_dir,
+    normalize_zone_ids,
+    select_requested_zones,
+)
+from prompts import grid_prompt
 from zone_selection import select_zone_categories
 
 
@@ -25,6 +36,97 @@ class AgentParsingTests(unittest.TestCase):
     def test_extracts_json_from_markdown_fence(self):
         payload = extract_json_object('```json\n{"a": 1, "b": "x"}\n```')
         self.assertEqual(payload, {"a": 1, "b": "x"})
+
+    def test_grid_stress_level_is_limited_to_known_levels(self):
+        context = {
+            "category": "Commercial",
+            "forecast_total_kwh": 100.0,
+            "forecast_peak_kwh": 20.0,
+            "predicted_change_pct": 5.0,
+            "grid_stress_level": "High",
+        }
+        self.assertEqual(
+            merge_grid_fallback({"grid_stress_level": "Medium"}, context)["grid_stress_level"],
+            "Medium",
+        )
+        self.assertEqual(
+            merge_grid_fallback({"grid_stress_level": "Severe"}, context)["grid_stress_level"],
+            "High",
+        )
+        self.assertEqual(
+            merge_grid_fallback({"grid_stress_level": "extrame high"}, context)["grid_stress_level"],
+            "Extreme High",
+        )
+
+    def test_heuristic_economist_returns_three_hour_price_windows(self):
+        context = {
+            "category": "Commercial",
+            "grid_stress_level": "High",
+            "predicted_change_pct": 5.0,
+            "hourly_averages": {"mean_predicted_kwh": 10.0, "mean_energy_price": 1.0},
+            "pricing_windows_3h": [
+                {
+                    "window_start": "2022-09-09 00:00:00",
+                    "window_end": "2022-09-09 02:00:00",
+                    "mean_predicted_kwh": 12.0,
+                    "mean_energy_price": 1.1,
+                },
+                {
+                    "window_start": "2022-09-09 03:00:00",
+                    "window_end": "2022-09-09 05:00:00",
+                    "mean_predicted_kwh": 8.0,
+                    "mean_energy_price": 0.9,
+                },
+            ],
+        }
+        result = heuristic_economist(context, {"grid_stress_level": "High", "predicted_change_pct": 5.0})
+        self.assertEqual(len(result["price_change_windows_3h"]), 2)
+        self.assertEqual(result["price_change_windows_3h"][0]["window_start"], "2022-09-09 00:00:00")
+
+    def test_prompt_includes_forecast_horizon_days(self):
+        prompt = grid_prompt({"forecast_horizon_days": 3})
+        self.assertIn("next 3 days", prompt)
+
+    def test_heuristic_behavior_changes_with_forecast_window(self):
+        base_context = {
+            "category": "User-selected",
+            "forecast_horizon_days": 1,
+            "predicted_change_pct": 5.0,
+            "weather": {"rain_hours": 0},
+            "hourly_shape": {"night_20_6": 1.0, "morning_7_10": 0.8, "evening_17_22": 0.7},
+            "profile": {"poi_total": 10},
+        }
+        first = heuristic_behavior(
+            {
+                **base_context,
+                "forecast_start": "2022-09-09T00:00:00",
+                "forecast_end": "2022-09-09T23:00:00",
+                "pricing_windows_3h": [
+                    {
+                        "window_start": "2022-09-09 09:00:00",
+                        "window_end": "2022-09-09 11:00:00",
+                        "sum_predicted_kwh": 100.0,
+                        "load_stress_level": "High",
+                    }
+                ],
+            }
+        )
+        second = heuristic_behavior(
+            {
+                **base_context,
+                "forecast_start": "2022-09-10T00:00:00",
+                "forecast_end": "2022-09-10T23:00:00",
+                "pricing_windows_3h": [
+                    {
+                        "window_start": "2022-09-10 18:00:00",
+                        "window_end": "2022-09-10 20:00:00",
+                        "sum_predicted_kwh": 80.0,
+                        "load_stress_level": "Medium",
+                    }
+                ],
+            }
+        )
+        self.assertNotEqual(first["agent_reasoning"], second["agent_reasoning"])
 
 
 class ConfigTests(unittest.TestCase):
@@ -236,6 +338,87 @@ class ForecastingTests(unittest.TestCase):
 
 
 class SelectionTests(unittest.TestCase):
+    def test_builds_hourly_agent_context_and_three_hour_windows(self):
+        hourly = pd.DataFrame(
+            {
+                "time": pd.date_range("2022-09-09", periods=6, freq="h"),
+                "predicted_kwh": [10, 12, 14, 8, 6, 7],
+                "actual_kwh": [11, 11, 13, 9, 5, 8],
+                "s_price": [0.7, 0.7, 0.8, 0.8, 0.6, 0.6],
+                "e_price": [1.0, 1.1, 1.2, 0.9, 0.8, 0.8],
+                "occupancy": [0.2, 0.3, 0.4, 0.2, 0.1, 0.1],
+                "T": [20, 21, 22, 20, 19, 18],
+                "U": [60, 61, 62, 63, 64, 65],
+                "nRAIN": [0, 0, 1, 0, 0, 0],
+                "error_kwh": [1, -1, -1, 1, -1, 1],
+                "abs_pct_error": [10, 8.3, 7.1, 12.5, 16.7, 14.3],
+            }
+        )
+        hourly_context = build_agent_hourly_data(hourly)
+        averages = build_hourly_averages(hourly)
+        windows = build_pricing_windows_3h(
+            hourly,
+            stress_thresholds={"available": True, "q50": 25.0, "q80": 35.0, "q95": 40.0},
+        )
+        self.assertEqual(len(hourly_context), 6)
+        self.assertEqual(hourly_context[0]["time"], "2022-09-09 00:00:00")
+        self.assertEqual(averages["mean_predicted_kwh"], 9.5)
+        self.assertEqual(len(windows), 2)
+        self.assertEqual(windows[0]["sum_predicted_kwh"], 36.0)
+        self.assertEqual(windows[0]["load_stress_level"], "High")
+
+    def test_caches_zone_three_hour_load_quantiles_from_volume_csv(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            data_dir = root / "data"
+            cache_dir = root / "cache"
+            data_dir.mkdir()
+            times = pd.date_range("2022-01-01", periods=12, freq="h")
+            pd.DataFrame(
+                {
+                    "time": times,
+                    "102": [float(value) for value in range(1, 13)],
+                    "104": [2.0] * 12,
+                }
+            ).to_csv(data_dir / "volume.csv", index=False)
+
+            quantiles = build_zone_3h_load_quantiles(data_dir, cache_dir)
+            row = quantiles.set_index("zone_id").loc["102"]
+            self.assertTrue((cache_dir / "zone_3h_load_quantiles.csv").exists())
+            self.assertEqual(row["stress_source_file"], "volume.csv")
+            self.assertEqual(row["stress_window_hours"], 3)
+            self.assertAlmostEqual(row["load_3h_q50_kwh"], 19.5)
+            self.assertAlmostEqual(row["load_3h_q80_kwh"], 27.6)
+
+    def test_pipeline_load_source_uses_volume_csv(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            data_dir = Path(temp_dir)
+            times = pd.date_range("2022-01-01", periods=2, freq="h")
+            pd.DataFrame({"time": times, "102": [10.0, 11.0]}).to_csv(data_dir / "volume.csv", index=False)
+            pd.DataFrame({"time": times, "102": [1000.0, 1001.0]}).to_csv(
+                data_dir / "volume-11kW.csv",
+                index=False,
+            )
+            pd.DataFrame({"time": times, "102": [0.7, 0.8]}).to_csv(data_dir / "s_price.csv", index=False)
+            pd.DataFrame({"time": times, "102": [1.0, 1.1]}).to_csv(data_dir / "e_price.csv", index=False)
+            pd.DataFrame({"time": times, "102": [0.2, 0.3]}).to_csv(data_dir / "occupancy.csv", index=False)
+            pd.DataFrame({"time": times, "T": [20.0, 21.0], "U": [60.0, 61.0], "nRAIN": [0.0, 0.0]}).to_csv(
+                data_dir / "weather_airport.csv",
+                index=False,
+            )
+            profiles = pd.DataFrame({"zone_id": ["102"]})
+
+            self.assertEqual(available_zone_ids(data_dir), ["102"])
+            pipeline_data = load_pipeline_data(data_dir, profiles, ["102"])
+            self.assertEqual(pipeline_data.load["102"].tolist(), [10.0, 11.0])
+
+    def test_classifies_grid_stress_from_zone_three_hour_quantiles(self):
+        thresholds = {"available": True, "q50": 50.0, "q80": 80.0, "q95": 95.0}
+        self.assertEqual(classify_load_stress(96, thresholds), "Extreme High")
+        self.assertEqual(classify_load_stress(90, thresholds), "High")
+        self.assertEqual(classify_load_stress(60, thresholds), "Medium")
+        self.assertEqual(classify_load_stress(50, thresholds), "Low")
+
     def test_forecast_output_dir_uses_model_subfolder(self):
         self.assertEqual(forecast_output_dir(Path("output"), "chronos"), Path("output") / "chronos")
         self.assertEqual(forecast_output_dir(Path("output"), "lstm"), Path("output") / "lstm")

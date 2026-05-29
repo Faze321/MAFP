@@ -9,7 +9,7 @@ import pandas as pd
 
 from agents import AgentChatClient, run_all_zone_chains
 from config import AgentConfig, normalize_forecast_model_name
-from data_loader import build_zone_profiles, load_pipeline_data
+from data_loader import build_zone_3h_load_quantiles, build_zone_profiles, load_pipeline_data
 from forecasting import ForecastResult, forecast_zone
 from reporting import safe_filename, write_outputs
 from zone_selection import select_zone_categories
@@ -67,6 +67,11 @@ def run_pipeline(
         force_cache=force_cache,
         max_poi_rows=max_poi_rows,
     )
+    zone_load_quantiles = build_zone_3h_load_quantiles(
+        data_dir,
+        output_dir / "cache",
+        force_cache=force_cache,
+    )
     requested_zone_ids = normalize_zone_ids(zone_ids)
     selected_zones = (
         select_requested_zones(profiles, requested_zone_ids)
@@ -88,6 +93,7 @@ def run_pipeline(
         history_days=history_days,
         validation_days=validation_days,
         forecast_model=forecast_model,
+        zone_load_quantiles=zone_load_quantiles,
         timesfm_repo=timesfm_repo,
         timesfm_context_hours=timesfm_context_hours,
         timesfm_step_horizon=timesfm_step_horizon,
@@ -148,6 +154,7 @@ def build_contexts(
     history_days: int,
     validation_days: int,
     forecast_model: str,
+    zone_load_quantiles: pd.DataFrame,
     timesfm_repo: str,
     timesfm_context_hours: int,
     timesfm_step_horizon: int,
@@ -178,10 +185,12 @@ def build_contexts(
     contexts = []
     forecast_results = {}
     profiles_by_zone = pipeline_data.profiles.set_index("zone_id", drop=False)
+    stress_thresholds_by_zone = zone_load_quantiles.set_index("zone_id", drop=False)
     for row in selected_zones.to_dict(orient="records"):
         zone_id = str(row["zone_id"])
         profile = profiles_by_zone.loc[zone_id].to_dict()
-        result = forecast_zone(
+        zone_stress_thresholds = load_stress_thresholds(stress_thresholds_by_zone, zone_id)
+        raw_result = forecast_zone(
             zone_id=zone_id,
             category=row["category"],
             load=pipeline_data.load,
@@ -221,18 +230,241 @@ def build_contexts(
             lstm_roll_actuals=lstm_roll_actuals,
             lstm_seed=lstm_seed,
         )
+        pricing_windows_3h = build_pricing_windows_3h(raw_result.hourly, stress_thresholds=zone_stress_thresholds)
+        summary = apply_load_quantile_stress(raw_result.summary, zone_stress_thresholds, pricing_windows_3h)
+        result = ForecastResult(hourly=raw_result.hourly, summary=summary)
         forecast_results[zone_id] = result
+        hourly_forecast = build_agent_hourly_data(result.hourly)
+        hourly_averages = build_hourly_averages(result.hourly)
+        horizon_text = format_horizon_days(summary.get("forecast_horizon_days", horizon_days))
         context = {
-            **result.summary,
+            **summary,
             "selection_reason": row["selection_reason"],
+            "hourly_averages": hourly_averages,
+            "hourly_forecast": hourly_forecast,
+            "pricing_windows_3h": pricing_windows_3h,
             "instructions": {
-                "forecast_task": "Predict next 1-4 days of EV charging load.",
+                "forecast_task": f"Predict next {horizon_text} of EV charging load.",
                 "behavior_task": "Explain demand using POI, weather, and temporal markers.",
-                "pricing_task": "Suggest service-price shift from stress and elasticity proxy.",
+                "pricing_task": "Suggest service-price shifts for each 3-hour pricing window.",
             },
         }
         contexts.append(context)
     return contexts, forecast_results
+
+
+def load_stress_thresholds(quantiles_by_zone: pd.DataFrame, zone_id: str) -> dict[str, Any]:
+    if zone_id not in quantiles_by_zone.index:
+        return {
+            "available": False,
+            "source_file": "volume.csv",
+            "window_hours": 3,
+            "historical_windows": 0,
+            "q50": 0.0,
+            "q80": 0.0,
+            "q95": 0.0,
+        }
+    row = quantiles_by_zone.loc[zone_id]
+    return {
+        "available": True,
+        "source_file": str(row.get("stress_source_file", "volume.csv")),
+        "window_hours": int(row.get("stress_window_hours", 3) or 3),
+        "historical_windows": int(row.get("historical_3h_windows", 0) or 0),
+        "q50": safe_float(row.get("load_3h_q50_kwh")),
+        "q80": safe_float(row.get("load_3h_q80_kwh")),
+        "q95": safe_float(row.get("load_3h_q95_kwh")),
+    }
+
+
+def classify_load_stress(load_value: Any, thresholds: dict[str, Any]) -> str:
+    if not thresholds.get("available", True):
+        return "Low"
+    try:
+        load = float(load_value)
+    except (TypeError, ValueError):
+        load = 0.0
+    if load > float(thresholds.get("q95", 0.0)):
+        return "Extreme High"
+    if load > float(thresholds.get("q80", 0.0)):
+        return "High"
+    if load > float(thresholds.get("q50", 0.0)):
+        return "Medium"
+    return "Low"
+
+
+def apply_load_quantile_stress(
+    summary: dict[str, Any],
+    thresholds: dict[str, Any],
+    pricing_windows_3h: list[dict[str, Any]],
+) -> dict[str, Any]:
+    updated = dict(summary)
+    stress_loads = [safe_float(window.get("sum_predicted_kwh")) for window in pricing_windows_3h]
+    stress_load = max(stress_loads) if stress_loads else 0.0
+    window_levels = [window.get("load_stress_level") for window in pricing_windows_3h]
+    updated["grid_stress_level"] = max_stress_level(window_levels) if window_levels else classify_load_stress(stress_load, thresholds)
+    updated["grid_stress_basis"] = "forecast_3h_sum_predicted_kwh_vs_zone_volume_csv_3h_load_quantiles"
+    updated["grid_stress_load_kwh"] = stress_load
+    updated["grid_stress_source_file"] = thresholds.get("source_file", "volume.csv")
+    updated["grid_stress_window_hours"] = thresholds.get("window_hours", 3)
+    updated["grid_stress_historical_windows"] = thresholds.get("historical_windows", 0)
+    updated["grid_stress_q50_kwh"] = thresholds.get("q50", 0.0)
+    updated["grid_stress_q80_kwh"] = thresholds.get("q80", 0.0)
+    updated["grid_stress_q95_kwh"] = thresholds.get("q95", 0.0)
+    return updated
+
+
+def build_agent_hourly_data(hourly: pd.DataFrame) -> list[dict[str, Any]]:
+    columns = [
+        "time",
+        "predicted_kwh",
+        "q10_kwh",
+        "q50_kwh",
+        "q90_kwh",
+        "actual_kwh",
+        "error_kwh",
+        "abs_pct_error",
+        "s_price",
+        "e_price",
+        "occupancy",
+        "T",
+        "U",
+        "nRAIN",
+        "hour",
+        "is_weekend",
+    ]
+    frame = hourly[[col for col in columns if col in hourly.columns]].copy()
+    if "time" in frame:
+        frame["time"] = pd.to_datetime(frame["time"]).dt.strftime("%Y-%m-%d %H:%M:%S")
+    return [{key: clean_context_value(value) for key, value in row.items()} for row in frame.to_dict(orient="records")]
+
+
+def build_hourly_averages(hourly: pd.DataFrame) -> dict[str, Any]:
+    columns = {
+        "predicted_kwh": "mean_predicted_kwh",
+        "actual_kwh": "mean_actual_kwh",
+        "s_price": "mean_service_price",
+        "e_price": "mean_energy_price",
+        "occupancy": "mean_occupancy",
+        "T": "mean_temp_c",
+        "U": "mean_humidity",
+        "nRAIN": "mean_rain",
+        "abs_pct_error": "mean_abs_pct_error",
+    }
+    averages: dict[str, Any] = {}
+    for source_col, output_col in columns.items():
+        if source_col in hourly:
+            value = pd.to_numeric(hourly[source_col], errors="coerce").mean(skipna=True)
+            averages[output_col] = clean_context_value(value)
+    if "predicted_kwh" in hourly:
+        predicted = pd.to_numeric(hourly["predicted_kwh"], errors="coerce")
+        averages["peak_predicted_kwh"] = clean_context_value(predicted.max(skipna=True))
+        averages["total_predicted_kwh"] = clean_context_value(predicted.sum(skipna=True))
+    return averages
+
+
+def build_pricing_windows_3h(
+    hourly: pd.DataFrame,
+    *,
+    stress_thresholds: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    frame = hourly.copy()
+    frame["time"] = pd.to_datetime(frame["time"])
+    frame = frame.sort_values("time").reset_index(drop=True)
+    windows: list[dict[str, Any]] = []
+    for idx in range(0, len(frame), 3):
+        chunk = frame.iloc[idx : idx + 3]
+        if chunk.empty:
+            continue
+        window: dict[str, Any] = {
+            "window_start": chunk["time"].iloc[0].strftime("%Y-%m-%d %H:%M:%S"),
+            "window_end": chunk["time"].iloc[-1].strftime("%Y-%m-%d %H:%M:%S"),
+            "hours": int(len(chunk)),
+        }
+        aggregations = {
+            "predicted_kwh": ("mean_predicted_kwh", "sum_predicted_kwh", "peak_predicted_kwh"),
+            "actual_kwh": ("mean_actual_kwh", "sum_actual_kwh", "peak_actual_kwh"),
+        }
+        for source_col, (mean_col, sum_col, max_col) in aggregations.items():
+            if source_col in chunk:
+                values = pd.to_numeric(chunk[source_col], errors="coerce")
+                window[mean_col] = clean_context_value(values.mean(skipna=True))
+                window[sum_col] = clean_context_value(values.sum(skipna=True) if values.notna().any() else None)
+                window[max_col] = clean_context_value(values.max(skipna=True))
+        mean_columns = {
+            "s_price": "mean_service_price",
+            "e_price": "mean_energy_price",
+            "occupancy": "mean_occupancy",
+            "T": "mean_temp_c",
+            "U": "mean_humidity",
+            "abs_pct_error": "mean_abs_pct_error",
+        }
+        for source_col, output_col in mean_columns.items():
+            if source_col in chunk:
+                window[output_col] = clean_context_value(pd.to_numeric(chunk[source_col], errors="coerce").mean(skipna=True))
+        if "nRAIN" in chunk:
+            window["total_rain"] = clean_context_value(pd.to_numeric(chunk["nRAIN"], errors="coerce").sum(skipna=True))
+        if stress_thresholds is not None:
+            stress_load = window.get("sum_predicted_kwh")
+            stress_level = classify_load_stress(stress_load, stress_thresholds)
+            window["load_stress_level"] = stress_level
+            window["grid_stress_level"] = stress_level
+            window["stress_load_3h_kwh"] = clean_context_value(stress_load)
+            window["stress_source_file"] = stress_thresholds.get("source_file", "volume.csv")
+            window["stress_window_hours"] = stress_thresholds.get("window_hours", 3)
+            window["load_3h_q50_kwh"] = stress_thresholds.get("q50", 0.0)
+            window["load_3h_q80_kwh"] = stress_thresholds.get("q80", 0.0)
+            window["load_3h_q95_kwh"] = stress_thresholds.get("q95", 0.0)
+        windows.append(window)
+    return windows
+
+
+def clean_context_value(value: Any, ndigits: int = 4) -> Any:
+    if value is None:
+        return None
+    if isinstance(value, pd.Timestamp):
+        return value.strftime("%Y-%m-%d %H:%M:%S")
+    try:
+        if pd.isna(value):
+            return None
+    except (TypeError, ValueError):
+        pass
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return round(value, ndigits)
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return value
+    return round(number, ndigits)
+
+
+def safe_float(value: Any) -> float:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return 0.0
+    if pd.isna(number):
+        return 0.0
+    return round(number, 4)
+
+
+def max_stress_level(levels: list[Any]) -> str:
+    order = {"Low": 0, "Medium": 1, "High": 2, "Extreme High": 3}
+    normalized = [str(level) for level in levels if level in order]
+    if not normalized:
+        return "Low"
+    return max(normalized, key=lambda level: order[level])
+
+
+def format_horizon_days(value: Any) -> str:
+    try:
+        days = int(value)
+    except (TypeError, ValueError):
+        return "configured days"
+    return "1 day" if days == 1 else f"{days} days"
 
 
 def normalize_zone_ids(zone_ids: str | Iterable[str] | None) -> list[str]:

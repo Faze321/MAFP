@@ -14,6 +14,7 @@ POI_COLUMNS = {
     "business and residential": "poi_business",
     "lifestyle services": "poi_lifestyle",
 }
+LOAD_FILE = "volume.csv"
 
 
 @dataclass(frozen=True)
@@ -42,7 +43,7 @@ def read_weather(path: Path) -> pd.DataFrame:
 
 
 def available_zone_ids(data_dir: Path) -> list[str]:
-    header = pd.read_csv(data_dir / "volume-11kW.csv", nrows=0)
+    header = pd.read_csv(data_dir / LOAD_FILE, nrows=0)
     return [str(col) for col in header.columns if col != "time"]
 
 
@@ -56,10 +57,12 @@ def build_zone_profiles(
     cache_dir.mkdir(parents=True, exist_ok=True)
     profile_cache = cache_dir / "zone_profiles.csv"
     if profile_cache.exists() and not force_cache and max_poi_rows is None:
-        return pd.read_csv(profile_cache, dtype={"zone_id": str})
+        cached = pd.read_csv(profile_cache, dtype={"zone_id": str})
+        if "load_source_file" in cached.columns and (cached["load_source_file"] == LOAD_FILE).all():
+            return cached
 
     zone_ids = available_zone_ids(data_dir)
-    load = read_time_matrix(data_dir / "volume-11kW.csv")
+    load = read_time_matrix(data_dir / LOAD_FILE)
     price = read_time_matrix(data_dir / "s_price.csv")
     station_profiles = build_station_profiles(data_dir)
     poi_counts = build_poi_zone_counts(
@@ -92,10 +95,52 @@ def build_zone_profiles(
         profiles["peak_load_kwh"].to_numpy(), profiles["capacity_kw_proxy"].to_numpy()
     )
     profiles = profiles.replace([np.inf, -np.inf], np.nan).fillna(0)
+    profiles["load_source_file"] = LOAD_FILE
 
     if max_poi_rows is None:
         profiles.to_csv(profile_cache, index=False)
     return profiles
+
+
+def build_zone_3h_load_quantiles(
+    data_dir: Path,
+    cache_dir: Path,
+    *,
+    force_cache: bool = False,
+    source_file: str = LOAD_FILE,
+    window_hours: int = 3,
+) -> pd.DataFrame:
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    cache_file = cache_dir / "zone_3h_load_quantiles.csv"
+    if cache_file.exists() and not force_cache:
+        cached = pd.read_csv(cache_file, dtype={"zone_id": str})
+        source_ok = "stress_source_file" in cached.columns and (cached["stress_source_file"] == source_file).all()
+        window_ok = "stress_window_hours" in cached.columns and (cached["stress_window_hours"].astype(int) == int(window_hours)).all()
+        if source_ok and window_ok:
+            return cached
+
+    load = read_time_matrix(data_dir / source_file)
+    zone_ids = [str(col) for col in load.columns if col != "time"]
+    values = load.set_index("time")[zone_ids].apply(pd.to_numeric, errors="coerce").sort_index()
+    grouped = values.resample(f"{int(window_hours)}h", origin="start_day").sum(min_count=1)
+
+    rows = []
+    for zone_id in zone_ids:
+        zone_values = grouped[zone_id].dropna()
+        rows.append(
+            {
+                "zone_id": zone_id,
+                "stress_source_file": source_file,
+                "stress_window_hours": int(window_hours),
+                "historical_3h_windows": int(len(zone_values)),
+                "load_3h_q50_kwh": finite_float(zone_values.quantile(0.50)),
+                "load_3h_q80_kwh": finite_float(zone_values.quantile(0.80)),
+                "load_3h_q95_kwh": finite_float(zone_values.quantile(0.95)),
+            }
+        )
+    quantiles = pd.DataFrame(rows)
+    quantiles.to_csv(cache_file, index=False)
+    return quantiles
 
 
 def build_station_profiles(data_dir: Path) -> pd.DataFrame:
@@ -207,7 +252,7 @@ def load_pipeline_data(
     *,
     weather_file: str = "weather_airport.csv",
 ) -> PipelineData:
-    load = read_time_matrix(data_dir / "volume-11kW.csv", selected_zone_ids)
+    load = read_time_matrix(data_dir / LOAD_FILE, selected_zone_ids)
     service_price = read_time_matrix(data_dir / "s_price.csv", selected_zone_ids)
     energy_price = read_time_matrix(data_dir / "e_price.csv", selected_zone_ids)
     occupancy = read_time_matrix(data_dir / "occupancy.csv", selected_zone_ids)
@@ -227,6 +272,16 @@ def safe_divide(numerator: np.ndarray, denominator: np.ndarray) -> np.ndarray:
     denominator = np.asarray(denominator, dtype=float)
     out = np.zeros_like(numerator, dtype=float)
     return np.divide(numerator, denominator, out=out, where=denominator != 0)
+
+
+def finite_float(value: object) -> float:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return 0.0
+    if np.isnan(number) or np.isinf(number):
+        return 0.0
+    return round(number, 4)
 
 
 def write_json(path: Path, payload: object) -> None:

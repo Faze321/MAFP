@@ -87,7 +87,7 @@ def forecast_zone(
     zone_frame = build_zone_model_frame(load, service_price, energy_price, occupancy, weather, zone_id)
     history = zone_frame[(zone_frame["time"] >= history_start) & (zone_frame["time"] <= history_end)]
     validation = zone_frame[(zone_frame["time"] >= validation_start) & (zone_frame["time"] <= validation_end)]
-    actual = zone_frame[(zone_frame["time"] >= forecast_start) & (zone_frame["time"] <= forecast_end)][["time", "actual_kwh"]]
+    forecast_features = zone_frame[(zone_frame["time"] >= forecast_start) & (zone_frame["time"] <= forecast_end)].copy()
     if len(history) < 24:
         raise ValueError(f"Not enough history for zone {zone_id}: found {len(history)} hours")
 
@@ -125,7 +125,24 @@ def forecast_zone(
         lstm_seed=lstm_seed,
     )
     forecast_attrs = dict(hourly.attrs)
-    hourly = hourly.merge(actual, on="time", how="left")
+    hourly_feature_cols = [
+        col
+        for col in [
+            "time",
+            "actual_kwh",
+            "e_price",
+            "s_price",
+            "occupancy",
+            "T",
+            "U",
+            "nRAIN",
+            "hour",
+            "is_weekend",
+            "temp_price_idx",
+        ]
+        if col in forecast_features.columns
+    ]
+    hourly = hourly.merge(forecast_features[hourly_feature_cols], on="time", how="left")
     hourly = add_error_columns(hourly)
     metrics = compute_forecast_metrics(hourly)
 
@@ -142,7 +159,7 @@ def forecast_zone(
     actual_peak = float(hourly["actual_kwh"].max()) if hourly["actual_kwh"].notna().any() else None
 
     peak_capacity_ratio = forecast_peak / capacity if capacity > 0 else 0.0
-    stress_level = stress_from_ratio(peak_capacity_ratio)
+    stress_level = str(profile.get("grid_stress_level") or "Low")
 
     summary = {
         "zone_id": zone_id,
@@ -153,6 +170,8 @@ def forecast_zone(
         "validation_end": validation_end.isoformat() if validation_hours else None,
         "forecast_start": forecast_start.isoformat(),
         "forecast_end": forecast_end.isoformat(),
+        "forecast_horizon_days": int(horizon_days),
+        "forecast_horizon_hours": int(horizon_hours),
         "forecast_model": normalized_model,
         "timesfm_covariates": (timesfm_exog_cols or DEFAULT_TIMESFM_EXOG_COLS) if normalized_model == "timesfm" else None,
         "timesfm_diurnal_blend_alpha": round(float(timesfm_diurnal_blend_alpha), 4) if normalized_model == "timesfm" else None,
@@ -1371,14 +1390,6 @@ def finite_round(value: Any, ndigits: int) -> float:
     if np.isnan(number) or np.isinf(number):
         return 0.0
     return round(number, ndigits)
-
-
-def stress_from_ratio(ratio: float) -> str:
-    if ratio >= 0.9:
-        return "Critical"
-    if ratio >= 0.7:
-        return "Moderate"
-    return "Low"
 
 
 def pct_change(current: float, baseline: float) -> float:
