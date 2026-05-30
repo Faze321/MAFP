@@ -1,3 +1,5 @@
+import asyncio
+import json
 import unittest
 import tempfile
 from pathlib import Path
@@ -8,12 +10,16 @@ import pandas as pd
 import torch
 
 from agents import (
+    ECONOMIST_AGENT_OUTPUT_KEY,
+    AgentChatClient,
     extract_json_object,
     heuristic_behavior,
     heuristic_economist,
     merge_economist_fallback,
     merge_grid_fallback,
     normalize_price_windows,
+    run_zone_chain,
+    validate_economist_report,
 )
 from config import AgentConfig, AppConfig, RunConfig
 from data_loader import available_zone_ids, build_zone_3h_load_quantiles, load_pipeline_data
@@ -37,12 +43,54 @@ from orchestrator import (
     run_experiment_matrix,
     select_requested_zones,
 )
-from prompts import grid_prompt
-from reporting import build_price_comparison_summary, price_comparison_fields
+from prompts import compact_economist_context, economist_prompt, grid_prompt
+from reporting import (
+    build_price_comparison_summary,
+    price_comparison_fields,
+    split_economist_agent_outputs,
+    write_outputs,
+)
 from zone_selection import select_zone_categories
 
 
 class AgentParsingTests(unittest.TestCase):
+    def test_agent_client_requests_json_response_format(self):
+        class FakeCompletions:
+            def __init__(self):
+                self.kwargs = None
+
+            async def create(self, **kwargs):
+                self.kwargs = kwargs
+
+                class Message:
+                    content = '{"ok": true}'
+
+                class Choice:
+                    message = Message()
+
+                class Response:
+                    choices = [Choice()]
+
+                return Response()
+
+        class FakeChat:
+            def __init__(self):
+                self.completions = FakeCompletions()
+
+        class FakeClient:
+            def __init__(self):
+                self.chat = FakeChat()
+
+        fake_client = FakeClient()
+        client = object.__new__(AgentChatClient)
+        client.config = AgentConfig(api_key="sk-test", base_url="https://example.test", model="fake-model")
+        client._client = fake_client
+
+        result = asyncio.run(client.complete_json("Return JSON.", temperature=0.2))
+
+        self.assertEqual(result, {"ok": True})
+        self.assertEqual(fake_client.chat.completions.kwargs["response_format"], {"type": "json_object"})
+
     def test_extracts_json_from_markdown_fence(self):
         payload = extract_json_object('```json\n{"a": 1, "b": "x"}\n```')
         self.assertEqual(payload, {"a": 1, "b": "x"})
@@ -130,9 +178,213 @@ class AgentParsingTests(unittest.TestCase):
         windows = normalize_price_windows(merged["price_change_windows_3h"], context["pricing_windows_3h"])
         self.assertEqual(windows[0]["action_label"], "MODEL_RESPONSE_FAILED: missing price_change_windows_3h item")
 
+    def test_economist_validation_finds_missing_window_fields(self):
+        errors = validate_economist_report(
+            {
+                "suggested_price_shift_pct": 5,
+                "action_label": "Raise",
+                "price_rationale": "High demand",
+                "price_change_windows_3h": [{"window_start": "2022-09-09 00:00:00"}],
+            },
+            [
+                {
+                    "window_start": "2022-09-09 00:00:00",
+                    "window_end": "2022-09-09 02:00:00",
+                }
+            ],
+        )
+        self.assertIn("price_change_windows_3h[0] missing window_end", errors)
+        self.assertIn("price_change_windows_3h[0] missing action_label", errors)
+
+    def test_run_zone_chain_repairs_invalid_economist_response(self):
+        class FakeClient:
+            def __init__(self):
+                self.prompts = []
+                self.responses = [
+                    {
+                        "forecast_total_kwh": 100.0,
+                        "forecast_peak_kwh": 20.0,
+                        "predicted_change_pct": 5.0,
+                        "grid_stress_level": "High",
+                        "forecast_summary": "High demand.",
+                    },
+                    {
+                        "agent_reasoning": "One high-stress window.",
+                        "demand_drivers": ["high-stress window"],
+                        "confidence": "medium",
+                    },
+                    {
+                        "suggested_price_shift_pct": 5,
+                        "price_change_windows_3h": [{"suggested_price_shift_pct": 5}],
+                    },
+                    {
+                        "suggested_price_shift_pct": 5,
+                        "action_label": "Raise price",
+                        "price_rationale": "High stress requires a higher service fee.",
+                        "price_change_windows_3h": [
+                            {
+                                "window_start": "2022-09-09 00:00:00",
+                                "window_end": "2022-09-09 02:00:00",
+                                "suggested_price_shift_pct": 5,
+                                "action_label": "Raise price",
+                                "price_rationale": "High stress window requires a higher service fee.",
+                            }
+                        ],
+                    },
+                ]
+
+            async def complete_json(self, prompt, *, temperature):
+                self.prompts.append(prompt)
+                return self.responses.pop(0)
+
+        client = FakeClient()
+        context = {
+            "category": "Commercial",
+            "zone_id": "102",
+            "forecast_total_kwh": 100.0,
+            "forecast_peak_kwh": 20.0,
+            "predicted_change_pct": 5.0,
+            "actual_total_kwh": 90.0,
+            "mae_kwh": None,
+            "rmse_kwh": None,
+            "mape_pct": None,
+            "rae": None,
+            "wape_pct": None,
+            "grid_stress_level": "High",
+            "weather": {"rain_hours": 0},
+            "hourly_shape": {"night_20_6": 1.0, "morning_7_10": 0.8, "evening_17_22": 0.7},
+            "profile": {"poi_total": 10},
+            "hourly_averages": {"mean_predicted_kwh": 10.0, "mean_energy_price": 1.0},
+            "pricing_windows_3h": [
+                {
+                    "window_start": "2022-09-09 00:00:00",
+                    "window_end": "2022-09-09 02:00:00",
+                    "sum_predicted_kwh": 60.0,
+                    "mean_predicted_kwh": 20.0,
+                    "load_stress_level": "High",
+                }
+            ],
+        }
+        report = asyncio.run(run_zone_chain(context, client=client, temperature=0.2))
+        self.assertEqual(len(client.prompts), 4)
+        self.assertEqual(report["action_label"], "Raise price")
+        self.assertEqual(report["price_change_windows_3h"][0]["action_label"], "Raise price")
+        self.assertNotIn("MODEL_RESPONSE_FAILED", report["price_rationale"])
+        debug = report[ECONOMIST_AGENT_OUTPUT_KEY]
+        self.assertEqual(debug["zone_id"], "102")
+        self.assertTrue(debug["repair_attempted"])
+        self.assertEqual(debug["selected_response_source"], "repair")
+        self.assertIn("missing action_label", debug["initial_validation_errors"])
+
+    def test_splits_economist_agent_output_from_trace_reports(self):
+        trace_reports, economist_outputs = split_economist_agent_outputs(
+            [
+                {
+                    "zone_id": "102",
+                    "action_label": "Raise price",
+                    ECONOMIST_AGENT_OUTPUT_KEY: {
+                        "zone_id": "102",
+                        "initial_response": {"suggested_price_shift_pct": 8},
+                        "initial_validation_errors": [],
+                    },
+                }
+            ]
+        )
+
+        self.assertEqual(trace_reports, [{"zone_id": "102", "action_label": "Raise price"}])
+        self.assertEqual(economist_outputs[0]["zone_id"], "102")
+        self.assertEqual(economist_outputs[0]["initial_response"]["suggested_price_shift_pct"], 8)
+
+    def test_write_outputs_saves_economist_agent_output_separately(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output_dir = Path(temp_dir)
+            outputs = write_outputs(
+                output_dir=output_dir,
+                selected_zones=pd.DataFrame([{"zone_id": "102", "category": "User-selected"}]),
+                contexts=[],
+                reports=[
+                    {
+                        "zone_id": "102",
+                        "category": "User-selected",
+                        "action_label": "Raise price",
+                        ECONOMIST_AGENT_OUTPUT_KEY: {
+                            "zone_id": "102",
+                            "initial_response": {"suggested_price_shift_pct": 8},
+                            "initial_validation_errors": [],
+                        },
+                    }
+                ],
+                forecast_results={},
+            )
+
+            economist_outputs = json.loads(outputs["economist_agent_outputs_json"].read_text(encoding="utf-8"))
+            trace_reports = json.loads(outputs["rationale_trace_json"].read_text(encoding="utf-8"))
+            self.assertEqual(economist_outputs[0]["zone_id"], "102")
+            self.assertEqual(economist_outputs[0]["initial_response"]["suggested_price_shift_pct"], 8)
+            self.assertNotIn(ECONOMIST_AGENT_OUTPUT_KEY, trace_reports[0])
+
     def test_prompt_includes_forecast_horizon_days(self):
         prompt = grid_prompt({"forecast_horizon_days": 3})
         self.assertIn("next 3 days", prompt)
+
+    def test_economist_context_excludes_future_actuals_and_evaluation_fields(self):
+        context = {
+            "category": "User-selected",
+            "zone_id": "102",
+            "forecast_start": "2022-09-09T00:00:00",
+            "forecast_end": "2022-09-10T23:00:00",
+            "forecast_horizon_days": 2,
+            "forecast_horizon_hours": 48,
+            "forecast_total_kwh": 100.0,
+            "forecast_peak_kwh": 20.0,
+            "predicted_change_pct": 5.0,
+            "grid_stress_level": "High",
+            "actual_total_kwh": 120.0,
+            "actual_grid_stress_level": "Extreme High",
+            "hourly_averages": {
+                "mean_predicted_kwh": 10.0,
+                "mean_actual_kwh": 12.0,
+                "mean_abs_pct_error": 15.0,
+                "mean_service_price": 0.75,
+            },
+            "pricing_windows_3h": [
+                {
+                    "window_start": "2022-09-09 00:00:00",
+                    "window_end": "2022-09-09 02:00:00",
+                    "sum_predicted_kwh": 60.0,
+                    "sum_actual_kwh": 90.0,
+                    "actual_load_stress_level": "Extreme High",
+                    "actual_grid_stress_level": "Extreme High",
+                    "actual_stress_load_3h_kwh": 90.0,
+                    "stress_correct": False,
+                    "stress_missed": True,
+                    "mean_abs_pct_error": 20.0,
+                    "mean_service_price": 0.75,
+                    "load_stress_level": "High",
+                }
+            ],
+        }
+
+        compact = compact_economist_context(context)
+        prompt = economist_prompt(
+            context,
+            {"grid_stress_level": "High", "predicted_change_pct": 5.0},
+            {"agent_reasoning": "Predicted high demand.", "demand_drivers": ["predicted stress"]},
+        )
+        serialized = json.dumps(compact, ensure_ascii=False)
+
+        self.assertNotIn("actual_total_kwh", compact)
+        self.assertNotIn("actual_grid_stress_level", compact)
+        self.assertNotIn("mean_actual_kwh", compact["hourly_averages"])
+        self.assertNotIn("mean_abs_pct_error", compact["hourly_averages"])
+        self.assertNotIn("sum_actual_kwh", compact["pricing_windows_3h"][0])
+        self.assertNotIn("actual_load_stress_level", compact["pricing_windows_3h"][0])
+        self.assertNotIn("stress_correct", compact["pricing_windows_3h"][0])
+        self.assertNotIn("stress_missed", compact["pricing_windows_3h"][0])
+        self.assertNotIn("actual_", serialized)
+        self.assertNotIn("stress_correct", prompt)
+        self.assertNotIn("stress_missed", prompt)
+        self.assertIn("sum_predicted_kwh", prompt)
 
     def test_heuristic_behavior_changes_with_forecast_window(self):
         base_context = {

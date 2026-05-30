@@ -7,11 +7,12 @@ from dataclasses import dataclass
 from typing import Any, Protocol
 
 from config import AgentConfig
-from prompts import SYSTEM_MESSAGE, behavior_prompt, economist_prompt, grid_prompt
+from prompts import SYSTEM_MESSAGE, behavior_prompt, economist_prompt, grid_prompt, repair_economist_prompt
 
 
 GRID_STRESS_LEVELS = ("Low", "Medium", "High", "Extreme High")
 MODEL_RESPONSE_FAILED = "MODEL_RESPONSE_FAILED"
+ECONOMIST_AGENT_OUTPUT_KEY = "_economist_agent_output"
 GRID_STRESS_LEVEL_BY_KEY = {level.lower(): level for level in GRID_STRESS_LEVELS}
 GRID_STRESS_LEVEL_BY_KEY.update(
     {
@@ -58,6 +59,7 @@ class AgentChatClient:
                 {"role": "system", "content": SYSTEM_MESSAGE},
                 {"role": "user", "content": prompt},
             ],
+            response_format={"type": "json_object"},
             temperature=temperature,
         )
         content = response.choices[0].message.content or "{}"
@@ -87,11 +89,26 @@ async def run_zone_chain(
         await client.complete_json(behavior_prompt(context, grid), temperature=temperature),
         context,
     )
+    economist_report = await complete_validated_economist_report(
+        client,
+        context,
+        grid,
+        behavior,
+        temperature=temperature,
+    )
+    economist_debug = economist_report.get(ECONOMIST_AGENT_OUTPUT_KEY)
     economist = merge_economist_fallback(
-        await client.complete_json(economist_prompt(context, grid, behavior), temperature=temperature),
+        economist_report,
         context,
     )
-    return combine_reports(context, grid, behavior, economist, source="model")
+    return combine_reports(
+        context,
+        grid,
+        behavior,
+        economist,
+        source="model",
+        economist_debug=economist_debug,
+    )
 
 
 async def run_all_zone_chains(
@@ -102,6 +119,59 @@ async def run_all_zone_chains(
 ) -> list[dict[str, Any]]:
     tasks = [run_zone_chain(context, client=client, temperature=temperature) for context in contexts]
     return await asyncio.gather(*tasks)
+
+
+async def complete_validated_economist_report(
+    client: ChatClient,
+    context: dict[str, Any],
+    grid: dict[str, Any],
+    behavior: dict[str, Any],
+    *,
+    temperature: float,
+) -> dict[str, Any]:
+    expected_windows = context.get("pricing_windows_3h", [])
+    report = await client.complete_json(economist_prompt(context, grid, behavior), temperature=temperature)
+    errors = validate_economist_report(report, expected_windows)
+    debug: dict[str, Any] = {
+        "zone_id": context.get("zone_id"),
+        "category": context.get("category"),
+        "forecast_start": context.get("forecast_start"),
+        "forecast_end": context.get("forecast_end"),
+        "expected_price_window_count": len(expected_windows) if isinstance(expected_windows, list) else 0,
+        "initial_response": report,
+        "initial_validation_errors": errors,
+        "repair_attempted": False,
+        "repair_response": None,
+        "repair_validation_errors": None,
+        "selected_response_source": "initial",
+        "selected_validation_errors": errors,
+    }
+    if not errors:
+        return attach_economist_debug(report, debug)
+
+    repaired = await client.complete_json(
+        repair_economist_prompt(context, grid, behavior, report, errors),
+        temperature=min(temperature, 0.1),
+    )
+    repair_errors = validate_economist_report(repaired, expected_windows)
+    debug.update(
+        {
+            "repair_attempted": True,
+            "repair_response": repaired,
+            "repair_validation_errors": repair_errors,
+        }
+    )
+    if not repair_errors or len(repair_errors) < len(errors):
+        debug["selected_response_source"] = "repair"
+        debug["selected_validation_errors"] = repair_errors
+        return attach_economist_debug(repaired, debug)
+    return attach_economist_debug(report, debug)
+
+
+def attach_economist_debug(report: dict[str, Any], debug: dict[str, Any]) -> dict[str, Any]:
+    tagged = dict(report)
+    tagged[ECONOMIST_AGENT_OUTPUT_KEY] = debug
+    return tagged
 
 
 def heuristic_zone_chain(context: dict[str, Any]) -> dict[str, Any]:
@@ -197,8 +267,9 @@ def combine_reports(
     economist: dict[str, Any],
     *,
     source: str,
+    economist_debug: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    return {
+    report = {
         "category": context["category"],
         "zone_id": context["zone_id"],
         "predicted_load_kwh": as_float(grid.get("forecast_total_kwh"), context["forecast_total_kwh"]),
@@ -229,6 +300,9 @@ def combine_reports(
         ),
         "source": source,
     }
+    if economist_debug is not None:
+        report[ECONOMIST_AGENT_OUTPUT_KEY] = economist_debug
+    return report
 
 
 def merge_grid_fallback(report: dict[str, Any], context: dict[str, Any]) -> dict[str, Any]:
@@ -274,6 +348,51 @@ def extract_json_object(text: str) -> dict[str, Any]:
         except json.JSONDecodeError:
             return {}
     return value if isinstance(value, dict) else {}
+
+
+def validate_economist_report(report: dict[str, Any], expected_windows: Any) -> list[str]:
+    errors: list[str] = []
+    if not isinstance(report, dict):
+        return ["response is not a JSON object"]
+
+    if not is_number_like(report.get("suggested_price_shift_pct")):
+        errors.append("missing or invalid suggested_price_shift_pct")
+    if not has_text(report.get("action_label")):
+        errors.append("missing action_label")
+    if not has_text(report.get("price_rationale")):
+        errors.append("missing price_rationale")
+
+    expected = expected_windows if isinstance(expected_windows, list) else []
+    actual = report.get("price_change_windows_3h")
+    if not isinstance(actual, list):
+        errors.append("missing price_change_windows_3h")
+        return errors
+    if len(actual) != len(expected):
+        errors.append(f"price_change_windows_3h length {len(actual)} != expected {len(expected)}")
+
+    for idx, expected_window in enumerate(expected):
+        if idx >= len(actual) or not isinstance(actual[idx], dict):
+            errors.append(f"price_change_windows_3h[{idx}] missing")
+            continue
+        item = actual[idx]
+        for field in ("window_start", "window_end", "action_label", "price_rationale"):
+            if not has_text(item.get(field)):
+                errors.append(f"price_change_windows_3h[{idx}] missing {field}")
+        if not is_number_like(item.get("suggested_price_shift_pct")):
+            errors.append(f"price_change_windows_3h[{idx}] missing or invalid suggested_price_shift_pct")
+        for field in ("window_start", "window_end"):
+            expected_value = expected_window.get(field) if isinstance(expected_window, dict) else None
+            if has_text(expected_value) and has_text(item.get(field)) and str(item.get(field)) != str(expected_value):
+                errors.append(f"price_change_windows_3h[{idx}] {field} does not match context")
+    return errors
+
+
+def is_number_like(value: Any) -> bool:
+    try:
+        float(value)
+    except (TypeError, ValueError):
+        return False
+    return True
 
 
 def as_float(value: Any, fallback: float) -> float:

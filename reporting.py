@@ -9,6 +9,7 @@ import pandas as pd
 
 PRICE_ERROR_THRESHOLD_RATIO = 0.08
 PRICE_ERROR_THRESHOLD_PCT = PRICE_ERROR_THRESHOLD_RATIO * 100
+ECONOMIST_AGENT_OUTPUT_KEY = "_economist_agent_output"
 
 
 TRACE_COLUMNS = [
@@ -50,6 +51,7 @@ def write_outputs(
     trace_csv = output_dir / "rationale_trace.csv"
     trace_md = output_dir / "rationale_trace.md"
     trace_json = output_dir / "rationale_trace.json"
+    economist_outputs_json = output_dir / "economist_agent_outputs.json"
     metrics_csv = output_dir / "forecast_metrics.csv"
     metrics_md = output_dir / "forecast_metrics.md"
     price_schedule_csv = output_dir / "price_schedule_3h.csv"
@@ -60,13 +62,15 @@ def write_outputs(
 
     selected_zones.to_csv(selected_path, index=False)
     contexts_path.write_text(json.dumps(contexts, indent=2, ensure_ascii=False), encoding="utf-8")
+    trace_reports, economist_outputs = split_economist_agent_outputs(reports)
+    economist_outputs_json.write_text(json.dumps(economist_outputs, indent=2, ensure_ascii=False), encoding="utf-8")
 
-    trace = pd.DataFrame(reports)
+    trace = pd.DataFrame(trace_reports)
     trace = trace[[col for col in TRACE_COLUMNS if col in trace.columns]]
     trace.to_csv(trace_csv, index=False)
-    trace_json.write_text(json.dumps(reports, indent=2, ensure_ascii=False), encoding="utf-8")
+    trace_json.write_text(json.dumps(trace_reports, indent=2, ensure_ascii=False), encoding="utf-8")
     trace_md.write_text(markdown_table(trace), encoding="utf-8")
-    write_price_schedule_outputs(price_schedule_csv, price_schedule_md, price_comparison_csv, price_comparison_md, reports)
+    write_price_schedule_outputs(price_schedule_csv, price_schedule_md, price_comparison_csv, price_comparison_md, trace_reports)
     metrics = write_forecast_outputs(details_dir, metrics_csv, metrics_md, forecast_results)
 
     outputs = {
@@ -75,6 +79,7 @@ def write_outputs(
         "rationale_trace_csv": trace_csv,
         "rationale_trace_md": trace_md,
         "rationale_trace_json": trace_json,
+        "economist_agent_outputs_json": economist_outputs_json,
         "forecast_metrics_csv": metrics_csv,
         "forecast_metrics_md": metrics_md,
         "price_schedule_3h_csv": price_schedule_csv,
@@ -85,6 +90,18 @@ def write_outputs(
     }
     outputs.update(metrics)
     return outputs
+
+
+def split_economist_agent_outputs(reports: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    trace_reports: list[dict[str, Any]] = []
+    economist_outputs: list[dict[str, Any]] = []
+    for report in reports:
+        clean_report = {key: value for key, value in report.items() if key != ECONOMIST_AGENT_OUTPUT_KEY}
+        trace_reports.append(clean_report)
+        debug = report.get(ECONOMIST_AGENT_OUTPUT_KEY)
+        if isinstance(debug, dict):
+            economist_outputs.append(debug)
+    return trace_reports, economist_outputs
 
 
 def write_forecast_outputs(
