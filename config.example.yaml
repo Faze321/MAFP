@@ -12,12 +12,23 @@ run:
   force_cache: false
   max_poi_rows: null
   forecast_start: "2022-09-09 00:00:00"
-  horizon_days: 6
+  forecast_starts:
+    - "2022-09-09 00:00:00"
+    - "2022-10-14 00:00:00"
+    - "2022-12-16 00:00:00"
+    - "2023-02-10 00:00:00"
+  horizon_days: 2
   history_days: 7
   validation_days: 1
   zones:
     - "102"
+    - "105"
   forecast_model: "timesfm"
+  forecast_models:
+    - "timesfm"
+    - "chronos"
+    - "lstm"
+    - "AR"
   timesfm_repo: "google/timesfm-2.5-200m-pytorch"
   timesfm_context_hours: 168
   timesfm_step_horizon: 24

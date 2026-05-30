@@ -22,6 +22,7 @@ def run_pipeline(
     *,
     data_dir: Path,
     output_dir: Path,
+    cache_dir: Path | None = None,
     config_path: Path = Path("config.yaml"),
     model: str | None = None,
     weather_file: str = "weather_airport.csv",
@@ -63,16 +64,17 @@ def run_pipeline(
 ) -> dict[str, Path]:
     forecast_model = normalize_forecast_model_name(forecast_model)
     output_dir.mkdir(parents=True, exist_ok=True)
+    shared_cache_dir = cache_dir or output_dir / "cache"
     run_output_dir = forecast_output_dir(output_dir, forecast_model)
     profiles = build_zone_profiles(
         data_dir,
-        output_dir / "cache",
+        shared_cache_dir,
         force_cache=force_cache,
         max_poi_rows=max_poi_rows,
     )
     zone_load_quantiles = build_zone_3h_load_quantiles(
         data_dir,
-        output_dir / "cache",
+        shared_cache_dir,
         force_cache=force_cache,
     )
     requested_zone_ids = normalize_zone_ids(zone_ids)
@@ -141,6 +143,179 @@ def run_pipeline(
         reports=reports,
         forecast_results=forecast_results,
     )
+
+
+def run_experiment_matrix(
+    *,
+    data_dir: Path,
+    output_dir: Path,
+    forecast_starts: Iterable[str],
+    forecast_models: Iterable[str],
+    zone_ids: str | Iterable[str] | None = None,
+    experiment_name: str | None = None,
+    **pipeline_kwargs: Any,
+) -> dict[str, Path]:
+    starts = normalize_forecast_starts(forecast_starts)
+    models = normalize_forecast_models(forecast_models)
+    selected_zone_ids = normalize_zone_ids(zone_ids) or ["102", "105"]
+    experiment_dir = output_dir / "experiments" / (
+        experiment_name or experiment_slug(selected_zone_ids, starts)
+    )
+    shared_cache_dir = output_dir / "cache"
+    experiment_dir.mkdir(parents=True, exist_ok=True)
+    shared_cache_dir.mkdir(parents=True, exist_ok=True)
+
+    runs_path = experiment_dir / "experiment_runs.csv"
+    metrics_path = experiment_dir / "experiment_forecast_metrics.csv"
+    price_path = experiment_dir / "experiment_price_comparison_summary.csv"
+    rationale_path = experiment_dir / "experiment_rationale_trace.csv"
+
+    run_records: list[dict[str, Any]] = []
+    metrics_frames: list[pd.DataFrame] = []
+    price_frames: list[pd.DataFrame] = []
+    rationale_frames: list[pd.DataFrame] = []
+    base_force_cache = bool(pipeline_kwargs.pop("force_cache", False))
+    cache_attempted = False
+
+    for forecast_start in starts:
+        time_output_dir = experiment_dir / forecast_start_slug(forecast_start)
+        for forecast_model in models:
+            run_output_dir = forecast_output_dir(time_output_dir, forecast_model)
+            record: dict[str, Any] = {
+                "forecast_start": forecast_start,
+                "forecast_model": forecast_model,
+                "zone_ids": ",".join(selected_zone_ids),
+                "run_output_dir": str(run_output_dir),
+                "status": "running",
+                "error": "",
+                "completed_at": "",
+            }
+            try:
+                outputs = run_pipeline(
+                    data_dir=data_dir,
+                    output_dir=time_output_dir,
+                    cache_dir=shared_cache_dir,
+                    force_cache=base_force_cache and not cache_attempted,
+                    forecast_start=forecast_start,
+                    forecast_model=forecast_model,
+                    zone_ids=selected_zone_ids,
+                    **pipeline_kwargs,
+                )
+                record["status"] = "success"
+                record["completed_at"] = pd.Timestamp.now().isoformat()
+                append_experiment_frame(
+                    metrics_frames,
+                    outputs.get("forecast_metrics_csv"),
+                    forecast_start,
+                    forecast_model,
+                    run_output_dir,
+                )
+                append_experiment_frame(
+                    price_frames,
+                    outputs.get("price_comparison_summary_csv"),
+                    forecast_start,
+                    forecast_model,
+                    run_output_dir,
+                )
+                append_experiment_frame(
+                    rationale_frames,
+                    outputs.get("rationale_trace_csv"),
+                    forecast_start,
+                    forecast_model,
+                    run_output_dir,
+                )
+            except Exception as exc:
+                record["status"] = "failed"
+                record["error"] = f"{type(exc).__name__}: {exc}"
+                record["completed_at"] = pd.Timestamp.now().isoformat()
+            finally:
+                cache_attempted = True
+                run_records.append(record)
+                pd.DataFrame(run_records).to_csv(runs_path, index=False)
+
+    write_experiment_summary(metrics_frames, metrics_path)
+    write_experiment_summary(price_frames, price_path)
+    write_experiment_summary(rationale_frames, rationale_path)
+    return {
+        "experiment_dir": experiment_dir,
+        "experiment_runs_csv": runs_path,
+        "experiment_forecast_metrics_csv": metrics_path,
+        "experiment_price_comparison_summary_csv": price_path,
+        "experiment_rationale_trace_csv": rationale_path,
+    }
+
+
+def normalize_forecast_starts(forecast_starts: Iterable[str]) -> list[str]:
+    starts: list[str] = []
+    seen: set[str] = set()
+    for value in forecast_starts:
+        if value in (None, ""):
+            continue
+        timestamp = pd.Timestamp(str(value).strip())
+        start = timestamp.strftime("%Y-%m-%d %H:%M:%S")
+        if start not in seen:
+            starts.append(start)
+            seen.add(start)
+    if not starts:
+        raise ValueError("At least one forecast start is required for an experiment matrix.")
+    return starts
+
+
+def normalize_forecast_models(forecast_models: Iterable[str]) -> list[str]:
+    models: list[str] = []
+    seen: set[str] = set()
+    for value in forecast_models:
+        if value in (None, ""):
+            continue
+        model_name = normalize_forecast_model_name(str(value))
+        if model_name not in seen:
+            models.append(model_name)
+            seen.add(model_name)
+    if not models:
+        raise ValueError("At least one forecast model is required for an experiment matrix.")
+    return models
+
+
+def experiment_slug(zone_ids: Iterable[str], forecast_starts: Iterable[str]) -> str:
+    zone_part = "_".join(safe_filename(zone_id) for zone_id in zone_ids) or "auto"
+    start_count = len(list(forecast_starts))
+    return f"zones_{zone_part}_{start_count}starts"
+
+
+def forecast_start_slug(forecast_start: str) -> str:
+    return pd.Timestamp(forecast_start).strftime("%Y-%m-%d_%H%M%S")
+
+
+def append_experiment_frame(
+    frames: list[pd.DataFrame],
+    path: Path | None,
+    forecast_start: str,
+    forecast_model: str,
+    run_output_dir: Path,
+) -> None:
+    if path is None or not path.exists():
+        return
+    frame = pd.read_csv(path)
+    metadata = {
+        "forecast_start": forecast_start,
+        "forecast_model": forecast_model,
+        "run_output_dir": str(run_output_dir),
+    }
+    insert_at = 0
+    for column, value in metadata.items():
+        if column in frame.columns:
+            frame[column] = value
+        else:
+            frame.insert(insert_at, column, value)
+            insert_at += 1
+    frames.append(frame)
+
+
+def write_experiment_summary(frames: list[pd.DataFrame], path: Path) -> None:
+    if frames:
+        pd.concat(frames, ignore_index=True).to_csv(path, index=False)
+    else:
+        pd.DataFrame().to_csv(path, index=False)
 
 
 def forecast_output_dir(output_dir: Path, forecast_model: str) -> Path:

@@ -7,7 +7,14 @@ import numpy as np
 import pandas as pd
 import torch
 
-from agents import extract_json_object, heuristic_behavior, heuristic_economist, merge_grid_fallback
+from agents import (
+    extract_json_object,
+    heuristic_behavior,
+    heuristic_economist,
+    merge_economist_fallback,
+    merge_grid_fallback,
+    normalize_price_windows,
+)
 from config import AgentConfig, AppConfig, RunConfig
 from data_loader import available_zone_ids, build_zone_3h_load_quantiles, load_pipeline_data
 from forecasting import (
@@ -27,6 +34,7 @@ from orchestrator import (
     classify_load_stress,
     forecast_output_dir,
     normalize_zone_ids,
+    run_experiment_matrix,
     select_requested_zones,
 )
 from prompts import grid_prompt
@@ -84,6 +92,43 @@ class AgentParsingTests(unittest.TestCase):
         result = heuristic_economist(context, {"grid_stress_level": "High", "predicted_change_pct": 5.0})
         self.assertEqual(len(result["price_change_windows_3h"]), 2)
         self.assertEqual(result["price_change_windows_3h"][0]["window_start"], "2022-09-09 00:00:00")
+
+    def test_normalized_price_windows_mark_missing_model_text_fields(self):
+        windows = normalize_price_windows(
+            [{"suggested_price_shift_pct": -0.5}],
+            [
+                {
+                    "window_start": "2022-09-09 00:00:00",
+                    "window_end": "2022-09-09 02:00:00",
+                    "sum_predicted_kwh": 279.1,
+                    "load_stress_level": "High",
+                }
+            ],
+        )
+        self.assertEqual(windows[0]["action_label"], "MODEL_RESPONSE_FAILED: missing action_label")
+        self.assertEqual(windows[0]["price_rationale"], "MODEL_RESPONSE_FAILED: missing price_rationale")
+
+    def test_economist_merge_does_not_hide_missing_window_response(self):
+        context = {
+            "category": "Commercial",
+            "forecast_total_kwh": 100.0,
+            "forecast_peak_kwh": 20.0,
+            "predicted_change_pct": 5.0,
+            "grid_stress_level": "High",
+            "hourly_averages": {"mean_predicted_kwh": 10.0, "mean_energy_price": 1.0},
+            "pricing_windows_3h": [
+                {
+                    "window_start": "2022-09-09 00:00:00",
+                    "window_end": "2022-09-09 02:00:00",
+                    "sum_predicted_kwh": 100.0,
+                    "load_stress_level": "High",
+                }
+            ],
+        }
+        merged = merge_economist_fallback({}, context)
+        self.assertEqual(merged["price_change_windows_3h"], [])
+        windows = normalize_price_windows(merged["price_change_windows_3h"], context["pricing_windows_3h"])
+        self.assertEqual(windows[0]["action_label"], "MODEL_RESPONSE_FAILED: missing price_change_windows_3h item")
 
     def test_prompt_includes_forecast_horizon_days(self):
         prompt = grid_prompt({"forecast_horizon_days": 3})
@@ -143,11 +188,13 @@ class ConfigTests(unittest.TestCase):
         self.assertTrue(config.run.dry_run)
         self.assertEqual(config.run.weather_file, "weather_central.csv")
         self.assertEqual(config.run.forecast_start, "2022-09-09 00:00:00")
-        self.assertEqual(config.run.horizon_days, 6)
+        self.assertEqual(config.run.forecast_starts[:2], ["2022-09-09 00:00:00", "2022-10-14 00:00:00"])
+        self.assertEqual(config.run.horizon_days, 2)
         self.assertEqual(config.run.history_days, 7)
         self.assertEqual(config.run.validation_days, 1)
-        self.assertEqual(config.run.zone_ids, ["102"])
+        self.assertEqual(config.run.zone_ids, ["102", "105"])
         self.assertEqual(config.run.forecast_model, "timesfm")
+        self.assertEqual(config.run.forecast_models, ["timesfm", "chronos", "lstm", "AR"])
         self.assertEqual(config.run.timesfm_repo, "google/timesfm-2.5-200m-pytorch")
         self.assertEqual(config.run.timesfm_exog_cols[:4], ["T", "U", "nRAIN", "e_price"])
         self.assertEqual(config.run.ar_diurnal_blend_alpha, 0.0)
@@ -482,6 +529,91 @@ class SelectionTests(unittest.TestCase):
         self.assertEqual(forecast_output_dir(Path("output"), "lstm"), Path("output") / "lstm")
         self.assertEqual(forecast_output_dir(Path("output"), "timesfm"), Path("output") / "timesfm")
         self.assertEqual(forecast_output_dir(Path("output"), "AR"), Path("output") / "AR")
+
+    def test_experiment_matrix_writes_isolated_outputs_and_summaries(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            calls = []
+
+            def fake_run_pipeline(**kwargs):
+                calls.append(kwargs)
+                run_dir = forecast_output_dir(kwargs["output_dir"], kwargs["forecast_model"])
+                run_dir.mkdir(parents=True, exist_ok=True)
+                metrics_path = run_dir / "forecast_metrics.csv"
+                price_path = run_dir / "price_comparison_summary.csv"
+                rationale_path = run_dir / "rationale_trace.csv"
+                pd.DataFrame(
+                    [
+                        {
+                            "zone_id": "102",
+                            "forecast_model": kwargs["forecast_model"],
+                            "forecast_start": kwargs["forecast_start"],
+                            "MAE": 1.0,
+                        },
+                        {
+                            "zone_id": "105",
+                            "forecast_model": kwargs["forecast_model"],
+                            "forecast_start": kwargs["forecast_start"],
+                            "MAE": 2.0,
+                        },
+                    ]
+                ).to_csv(metrics_path, index=False)
+                pd.DataFrame(
+                    [
+                        {"zone_id": "102", "category": "User-selected", "price_accuracy": 0.5},
+                        {"zone_id": "105", "category": "User-selected", "price_accuracy": 0.75},
+                    ]
+                ).to_csv(price_path, index=False)
+                pd.DataFrame(
+                    [
+                        {"zone_id": "102", "source": "agent"},
+                        {"zone_id": "105", "source": "agent"},
+                    ]
+                ).to_csv(rationale_path, index=False)
+                return {
+                    "forecast_metrics_csv": metrics_path,
+                    "price_comparison_summary_csv": price_path,
+                    "rationale_trace_csv": rationale_path,
+                }
+
+            with patch("orchestrator.run_pipeline", side_effect=fake_run_pipeline):
+                outputs = run_experiment_matrix(
+                    data_dir=root / "data",
+                    output_dir=root / "output",
+                    config_path=Path("config.yaml"),
+                    dry_run=True,
+                    forecast_starts=["2022-09-09 00:00:00", "2022-10-14 00:00:00"],
+                    forecast_models=["timesfm", "AR"],
+                    zone_ids=["102", "105"],
+                )
+
+            self.assertEqual(len(calls), 4)
+            self.assertEqual(calls[0]["cache_dir"], root / "output" / "cache")
+            run_dirs = {
+                forecast_output_dir(call["output_dir"], call["forecast_model"])
+                for call in calls
+            }
+            self.assertEqual(len(run_dirs), 4)
+            self.assertIn(
+                root / "output" / "experiments" / "zones_102_105_2starts" / "2022-09-09_000000" / "timesfm",
+                run_dirs,
+            )
+            self.assertIn(
+                root / "output" / "experiments" / "zones_102_105_2starts" / "2022-10-14_000000" / "timesfm",
+                run_dirs,
+            )
+
+            runs = pd.read_csv(outputs["experiment_runs_csv"])
+            metrics = pd.read_csv(outputs["experiment_forecast_metrics_csv"])
+            prices = pd.read_csv(outputs["experiment_price_comparison_summary_csv"])
+            rationales = pd.read_csv(outputs["experiment_rationale_trace_csv"])
+            self.assertEqual(len(runs), 4)
+            self.assertTrue((runs["status"] == "success").all())
+            self.assertEqual(len(metrics), 8)
+            self.assertEqual(len(prices), 8)
+            self.assertEqual(len(rationales), 8)
+            self.assertEqual(set(metrics["zone_id"].astype(str)), {"102", "105"})
+            self.assertIn("run_output_dir", metrics.columns)
 
     def test_normalizes_requested_zone_ids(self):
         zone_ids = normalize_zone_ids(["102,104", " 108 ", "104"])

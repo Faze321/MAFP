@@ -11,6 +11,7 @@ from prompts import SYSTEM_MESSAGE, behavior_prompt, economist_prompt, grid_prom
 
 
 GRID_STRESS_LEVELS = ("Low", "Medium", "High", "Extreme High")
+MODEL_RESPONSE_FAILED = "MODEL_RESPONSE_FAILED"
 GRID_STRESS_LEVEL_BY_KEY = {level.lower(): level for level in GRID_STRESS_LEVELS}
 GRID_STRESS_LEVEL_BY_KEY.update(
     {
@@ -247,7 +248,14 @@ def merge_behavior_fallback(report: dict[str, Any], context: dict[str, Any]) -> 
 
 def merge_economist_fallback(report: dict[str, Any], context: dict[str, Any]) -> dict[str, Any]:
     fallback = heuristic_economist(context, heuristic_grid(context))
-    return {**fallback, **{key: value for key, value in report.items() if value not in (None, "")}}
+    merged = {**fallback, **{key: value for key, value in report.items() if value not in (None, "")}}
+    if not isinstance(report.get("price_change_windows_3h"), list):
+        merged["price_change_windows_3h"] = []
+    if not has_text(report.get("action_label")):
+        merged["action_label"] = model_response_failed("missing action_label")
+    if not has_text(report.get("price_rationale")):
+        merged["price_rationale"] = model_response_failed("missing price_rationale")
+    return merged
 
 
 def extract_json_object(text: str) -> dict[str, Any]:
@@ -365,7 +373,9 @@ def normalize_price_windows(value: Any, fallback_windows: list[dict[str, Any]]) 
         value = []
     normalized = []
     for idx, fallback in enumerate(fallback_windows):
-        item = value[idx] if idx < len(value) and isinstance(value[idx], dict) else {}
+        item_missing = idx >= len(value) or not isinstance(value[idx], dict)
+        item = value[idx] if not item_missing else {}
+        shift = as_float(item.get("suggested_price_shift_pct"), 0)
         normalized.append(
             {
                 "window_start": item.get("window_start") or fallback.get("window_start"),
@@ -384,12 +394,27 @@ def normalize_price_windows(value: Any, fallback_windows: list[dict[str, Any]]) 
                 "load_3h_q50_kwh": fallback.get("load_3h_q50_kwh"),
                 "load_3h_q80_kwh": fallback.get("load_3h_q80_kwh"),
                 "load_3h_q95_kwh": fallback.get("load_3h_q95_kwh"),
-                "suggested_price_shift_pct": as_float(item.get("suggested_price_shift_pct"), 0),
-                "action_label": str(item.get("action_label") or ""),
-                "price_rationale": str(item.get("price_rationale") or ""),
+                "suggested_price_shift_pct": shift,
+                "action_label": required_model_text(item, "action_label", item_missing),
+                "price_rationale": required_model_text(item, "price_rationale", item_missing),
             }
         )
     return normalized
+
+
+def required_model_text(item: dict[str, Any], field: str, item_missing: bool) -> str:
+    if item_missing:
+        return model_response_failed("missing price_change_windows_3h item")
+    value = item.get(field)
+    return str(value).strip() if has_text(value) else model_response_failed(f"missing {field}")
+
+
+def has_text(value: Any) -> bool:
+    return bool(str(value).strip()) if value is not None else False
+
+
+def model_response_failed(reason: str) -> str:
+    return f"{MODEL_RESPONSE_FAILED}: {reason}"
 
 
 def normalize_grid_stress_level(value: Any, fallback: Any = "Low") -> str:

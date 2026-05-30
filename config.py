@@ -19,6 +19,8 @@ class RunConfig:
     validation_days: int = 1
     zone_ids: list[str] | None = None
     forecast_model: str = "timesfm"
+    forecast_starts: list[str] | None = None
+    forecast_models: list[str] | None = None
     timesfm_repo: str = "google/timesfm-2.5-200m-pytorch"
     timesfm_context_hours: int = 168
     timesfm_step_horizon: int = 24
@@ -50,6 +52,8 @@ class RunConfig:
     def from_mapping(cls, raw: dict[str, Any] | None) -> "RunConfig":
         settings = raw or {}
         zone_ids = settings.get("zone_ids", settings.get("zones"))
+        forecast_starts = normalize_string_list(settings.get("forecast_starts"))
+        forecast_models = normalize_forecast_model_list(settings.get("forecast_models"))
         horizon_days = optional_int(settings.get("horizon_days"))
         history_days = optional_int(settings.get("history_days"))
         validation_days = optional_int(settings.get("validation_days"))
@@ -85,6 +89,8 @@ class RunConfig:
             validation_days=validation_days if validation_days is not None else 1,
             zone_ids=normalize_zone_id_list(zone_ids),
             forecast_model=normalize_forecast_model_name(optional_str(settings.get("forecast_model"))),
+            forecast_starts=forecast_starts,
+            forecast_models=forecast_models,
             timesfm_repo=optional_str(settings.get("timesfm_repo"))
             or "google/timesfm-2.5-200m-pytorch",
             timesfm_context_hours=timesfm_context_hours if timesfm_context_hours is not None else 168,
@@ -354,15 +360,33 @@ def optional_bool(value: Any, default: bool) -> bool:
 
 
 def normalize_zone_id_list(value: Any) -> list[str] | None:
+    return normalize_string_list(value)
+
+
+def normalize_string_list(value: Any) -> list[str] | None:
     if value in (None, ""):
         return None
     raw_values = value if isinstance(value, list) else [value]
-    zone_ids: list[str] = []
+    values: list[str] = []
     seen: set[str] = set()
     for raw in raw_values:
         for part in str(raw).replace(";", ",").split(","):
-            zone_id = part.strip()
-            if zone_id and zone_id not in seen:
-                zone_ids.append(zone_id)
-                seen.add(zone_id)
-    return zone_ids or None
+            value_text = part.strip()
+            if value_text and value_text not in seen:
+                values.append(value_text)
+                seen.add(value_text)
+    return values or None
+
+
+def normalize_forecast_model_list(value: Any) -> list[str] | None:
+    values = normalize_string_list(value)
+    if not values:
+        return None
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for item in values:
+        model_name = normalize_forecast_model_name(item)
+        if model_name not in seen:
+            normalized.append(model_name)
+            seen.add(model_name)
+    return normalized or None

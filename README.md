@@ -49,11 +49,14 @@ python main.py --dry-run --zones 102 --weather-file weather_central.csv --foreca
 python main.py --dry-run --forecast-model chronos
 python main.py --dry-run --forecast-model lstm
 python main.py --dry-run --forecast-model AR
+python main.py --zones 102 105 --forecast-starts "2022-09-09 00:00:00" "2022-10-14 00:00:00" "2022-12-16 00:00:00" "2023-02-24 00:00:00" --forecast-models timesfm chronos lstm AR
 python main.py --config config.yaml --model anthropic/claude-sonnet-4.5 --forecast-start "2023-02-25 00:00:00"
 python main.py --force-cache
 ```
 
 Runtime defaults can be stored under `run:` in `config.yaml`, so common settings do not need to be typed each time. Command-line options override YAML values only for that run. When `run.zones` / `--zones` is omitted, the pipeline keeps the original five-category automatic zone selection. When zones are provided, the pipeline skips category selection and validates only the specified zone ids.
+
+For broader experimental validation, set `run.forecast_starts` and `run.forecast_models`, or pass `--forecast-starts` and `--forecast-models`. Multi-value runs execute the full forecast-start by forecaster matrix while keeping each combination in a separate folder under `output/experiments/`, for example `output/experiments/zones_102_105_4starts/2022-09-09_000000/timesfm/`. The experiment root also writes `experiment_runs.csv`, `experiment_forecast_metrics.csv`, `experiment_price_comparison_summary.csv`, and `experiment_rationale_trace.csv`.
 
 Set `run.forecast_model: "timesfm"` to use `google/timesfm-2.5-200m-pytorch` for load forecasting. Set `run.forecast_model: "lstm"` to train a small local PyTorch LSTM per zone. Set `run.forecast_model: "AR"` for a fast autoregressive baseline run without TimesFM.
 Set `run.forecast_model: "chronos"` to use Chronos. The default Chronos config uses `amazon/chronos-2`, rolls actual observations into the context during retrospective multi-day evaluation, and exports the same `predicted_kwh`, `q10_kwh`, `q50_kwh`, and `q90_kwh` columns as TimesFM.
